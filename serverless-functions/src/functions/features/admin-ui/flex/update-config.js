@@ -9,7 +9,7 @@ exports.handler = prepareFlexFunction(requiredParameters, async (context, event,
   try {
     const { attributesUpdate, mergeFeature, TokenResult } = event;
 
-    if (TokenResult.roles.indexOf('admin') < 0) {
+    if (TokenResult.roles.indexOf('admin') < 0 && TokenResult.roles.indexOf('supervisor') < 0) {
       response.setStatusCode(403);
       response.setBody('Not authorized');
       return callback(null, response);
