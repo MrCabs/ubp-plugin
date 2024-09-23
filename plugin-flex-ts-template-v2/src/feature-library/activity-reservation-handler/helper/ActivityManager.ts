@@ -1,4 +1,4 @@
-import { Actions, Manager } from '@twilio/flex-ui';
+import { Actions, Manager, TaskHelper } from '@twilio/flex-ui';
 
 import { getSystemActivityNames, isFeatureEnabled } from '../config';
 import { FlexHelper } from '../../../utils/helpers';
@@ -18,6 +18,7 @@ export const reservedSystemActivities: string[] = [
   systemActivityNames.wrapup,
   systemActivityNames.wrapupNoAcd,
   systemActivityNames.extendedWrapup,
+  systemActivityNames.onHold,
 ];
 
 const isSystemActivity = (activityName: string): boolean => {
@@ -175,7 +176,7 @@ class ActivityManager {
 
   // evaluates which state we should be in given an availability status
   #evaluateNewState = async (newAvailabilityStatus: boolean): Promise<string> => {
-    const { available, onATask, onATaskNoAcd, wrapup, wrapupNoAcd, extendedWrapup } = systemActivityNames;
+    const { available, onATask, onATaskNoAcd, wrapup, wrapupNoAcd, extendedWrapup, onHold } = systemActivityNames;
 
     const selectedTaskStatus = FlexHelper.getSelectedTaskStatus();
     const pendingActivity = this.#getPendingActivity();
@@ -184,6 +185,9 @@ class ActivityManager {
     const hasPendingTasks = await FlexHelper.doesWorkerHaveReservationsInState(FlexHelper.RESERVATION_STATUS.PENDING);
     const hasAcceptedTasks = await FlexHelper.doesWorkerHaveReservationsInState(FlexHelper.RESERVATION_STATUS.ACCEPTED);
     const hasWrappingTasks = await FlexHelper.doesWorkerHaveReservationsInState(FlexHelper.RESERVATION_STATUS.WRAPPING);
+
+    // Check if any participant is on hold
+    const isOnHold = await this.#isAnyParticipantOnHold();
 
     // flex won't let us change activity while on a pending task
     // other than to an offline activity which will reject the task
@@ -196,6 +200,7 @@ class ActivityManager {
       return FlexHelper.getWorkerActivityName();
 
     if (selectedTaskStatus === FlexHelper.RESERVATION_STATUS.ACCEPTED) {
+      if (isOnHold) return onHold;
       if (newAvailabilityStatus) return onATask;
       if (!newAvailabilityStatus) return onATaskNoAcd;
     } else if (selectedTaskStatus === FlexHelper.RESERVATION_STATUS.WRAPPING) {
@@ -205,6 +210,7 @@ class ActivityManager {
     } else {
       // fallback behavior if no task is selected but
       // tasks are in flight
+      if (hasAcceptedTasks && isOnHold) return onHold;
       if (hasAcceptedTasks && newAvailabilityStatus) return onATask;
       if (hasAcceptedTasks && !newAvailabilityStatus) return onATaskNoAcd;
       if (hasWrappingTasks && extendedWrapup && this.#getInExtendedWrapup()) return extendedWrapup;
@@ -221,6 +227,20 @@ class ActivityManager {
   #clearPendingActivity = (): void => {
     localStorage.removeItem(this.pendingActivityChangeItemKey);
     Manager.getInstance().store.dispatch(updatePendingActivity(null));
+  };
+
+  // Checks if any participant in the selected task is on hold.
+  #isAnyParticipantOnHold = async () => {
+    const taskSid = FlexHelper.getSelectedTaskSid();
+    if (!taskSid) {
+      return false;
+    }
+
+    const task = TaskHelper.getTaskByTaskSid(taskSid);
+    if (!task) {
+      return false;
+    }
+    return TaskHelper.isCallOnHold(task);
   };
 }
 

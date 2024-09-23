@@ -4,7 +4,12 @@
     "common": {
       "log_level": "info",
       "audit_log_ttl": 1209600,
-      "teams": ["Blue Team", "Red Team", "Gold Team", "VIP Team"],
+      "teams": [
+        "Blue Team",
+        "Red Team",
+        "Gold Team",
+        "VIP Team"
+      ],
       "departments": [
         "General Management",
         "Marketing",
@@ -38,6 +43,10 @@
             "sort_order": 0
           },
           "Extended Wrap Up": {
+            "required_skill": "system_activities",
+            "sort_order": 0
+          },
+          "On Hold": {
             "required_skill": "system_activities",
             "sort_order": 0
           },
@@ -122,7 +131,8 @@
           "onATaskNoAcd": "On a Task, No ACD",
           "wrapup": "Wrap Up",
           "wrapupNoAcd": "Wrap Up, No ACD",
-          "extendedWrapup": "Extended Wrap Up"
+          "extendedWrapup": "Extended Wrap Up",
+          "onHold": "On Hold"
         }
       },
       "teams_view_filters": {
@@ -235,7 +245,10 @@
         "per_queue": {
           "exampleQueueName": {
             "require_disposition": true,
-            "dispositions": ["Promotional Sale", "Renewal"],
+            "dispositions": [
+              "Promotional Sale",
+              "Renewal"
+            ],
             "text_attributes": [],
             "select_attributes": []
           }
@@ -412,6 +425,9 @@
       "force_conference_region": {
         "enabled": false,
         "region": ""
+      },
+      "hold_timer": {
+        "enabled": false
       }
     }
   }

@@ -2,14 +2,15 @@ import { getFeatureFlags } from '../../utils/configuration';
 import ActivityReservationHandlerConfig from './types/ServiceConfiguration';
 
 const {
-  enabled = false,
+  enabled = true,
   system_activity_names = {
     available: 'Available',
-    onATask: 'On a Task',
+    onATask: 'On a Call',
     onATaskNoAcd: 'On a Task, No ACD',
     wrapup: 'Wrap Up',
     wrapupNoAcd: 'Wrap Up, No ACD',
     extendedWrapup: 'Extended Wrap Up',
+    onHold: 'On Hold',
   },
 } = (getFeatureFlags()?.features?.activity_reservation_handler as ActivityReservationHandlerConfig) || {};
 

@@ -7,5 +7,6 @@ export default interface ActivityReservationHandlerConfig {
     wrapup: string;
     wrapupNoAcd: string;
     extendedWrapup: string;
+    onHold: string;
   };
 }

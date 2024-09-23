@@ -13,21 +13,18 @@ export const actionHook = function setHoldTimer(flex: typeof Flex, manager: Flex
     return status;
   });
 
-  manager.strings.TaskLineCallAssigned = '{{CustomTaskLineCallAssigned}}';
+  //   manager.strings.TaskLineCallAssigned = '{{CustomTaskLineCallAssigned}}';
   manager.strings.TaskHeaderStatusAccepted = '{{CustomTaskLineCallAssigned}}';
   manager.strings.SupervisorTaskLive = '{{CustomTaskLineCallAssigned}}';
   manager.strings.TaskHeaderGroupCallAccepted =
-    "{{CustomTaskLineCallAssigned}} | {{{icon name='Participant'}}} {{tsk.conference.liveParticipantCount}}";
+    "{{CustomTaskLineCallAssigned}} | {{{icon name='Participant'}}} {{task.conference.liveParticipantCount}}";
   manager.strings.TaskLineGroupCallAssigned =
     "{{CustomTaskLineCallAssigned}} | {{{icon name='Participant'}}} {{task.conference.liveParticipantCount}}";
   manager.strings.SupervisorTaskGroupCall = '{{CustomTaskLineCallAssigned}} | {{task.conference.liveParticipantCount}}';
 };
 
 const getCustomerParticipant = (task: Flex.ITask): Flex.ConferenceParticipant | undefined => {
-  const conferenceChildren = task?.conference?.participants || [];
-  const customerParticipant = conferenceChildren.find((p) => p?.participantType === 'customer');
-  console.debug('Customer participant found:', customerParticipant);
-  return customerParticipant;
+  return task?.conference?.participants?.find((p) => p?.participantType === 'customer');
 };
 
 const formatTimeDuration = (milliseconds: number): string => {

@@ -23,6 +23,7 @@ const ActivityHandlerAdmin = (props: OwnProps) => {
   const [extendedWrapup, setExtendedWrapup] = useState(
     props.initialConfig?.system_activity_names?.extendedWrapup ?? '',
   );
+  const [onHold, setOnHold] = useState(props.initialConfig?.system_activity_names?.onHold ?? '');
 
   const { activities } = useFlexSelector((state: AppState) => state.flex.worker);
 
@@ -46,9 +47,10 @@ const ActivityHandlerAdmin = (props: OwnProps) => {
         wrapup,
         wrapupNoAcd,
         extendedWrapup,
+        onHold,
       },
     });
-  }, [available, onATask, onATaskNoAcd, wrapup, wrapupNoAcd, extendedWrapup]);
+  }, [available, onATask, onATaskNoAcd, wrapup, wrapupNoAcd, extendedWrapup, onHold]);
 
   return (
     <>
@@ -79,7 +81,7 @@ const ActivityHandlerAdmin = (props: OwnProps) => {
       </FormControl>
       <FormControl key="onatask-control">
         <Label htmlFor="onatask" required>
-          On a Task
+          On a Call
         </Label>
         <Select id="onatask" name="onatask" value={onATask} onChange={(e) => setOnATask(e.target.value)} required>
           <Option value="" disabled>
@@ -168,6 +170,22 @@ const ActivityHandlerAdmin = (props: OwnProps) => {
           {[...activities].map((entry) => {
             const activity = entry[1];
             if (activity.available) return <></>;
+
+            return <Option value={activity.name}>{activity.name}</Option>;
+          })}
+        </Select>
+      </FormControl>
+      <FormControl key="onHold-control">
+        <Label htmlFor="onHold" required>
+          On Hold
+        </Label>
+        <Select id="onHold" name="onHold" value={onHold} onChange={(e) => setOnHold(e.target.value)} required>
+          <Option value="" disabled>
+            Select an activity...
+          </Option>
+          {[...activities].map((entry) => {
+            const activity = entry[1];
+            if (!activity.available) return <></>;
 
             return <Option value={activity.name}>{activity.name}</Option>;
           })}
