@@ -1,15 +1,7 @@
 import * as Flex from '@twilio/flex-ui';
 
 import { NotificationIds } from '../flex-hooks/notifications/BusinessUnitFilter';
-
-interface BusinessUnitConfig {
-  business_units?: Record<string, string[]>;
-}
-
-interface TaskRouterSkill {
-  [key: string]: any;
-  name: string;
-}
+import { getBusinessUnits } from '../config';
 
 /**
  * Gets the business unit configuration from the Flex manager
@@ -24,7 +16,7 @@ export function getBusinessUnitConfig(manager: Flex.Manager):
   | null
   | 'admin' {
   const business_unit = manager.workerClient?.attributes.business_unit;
-  const ui_business_units = (manager.serviceConfiguration.ui_attributes as BusinessUnitConfig)?.business_units;
+  const ui_business_units = getBusinessUnits();
 
   // Show everything for admin users
   if (business_unit?.toLowerCase() === 'admin') {
@@ -71,10 +63,14 @@ export function getSkillsForTaskQueues(
   }, []);
 }
 
+interface TaskRouterSkill {
+  [key: string]: any;
+  name: string;
+}
+
 /**
  * Shows a notification to contact admin when business unit is missing
  */
 export function showMissingBusinessUnitNotification(flex: typeof Flex) {
-  console.log('🚀 ~ showMissingBusinessUnitNotification ~ flex:');
   flex.Notifications.showNotification(NotificationIds.MissingBusinessUnit as any);
 }
