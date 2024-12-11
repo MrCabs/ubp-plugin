@@ -40,5 +40,11 @@
     "semver": "^7.6.2",
     "shelljs": "^0.8.5",
     "twilio-cli": "5.22.3"
+  },
+  "dependencies": {
+    "flex-project-template": "file:"
+  },
+  "resolutions": {
+    "cross-spawn": "7.0.5"
   }
 }

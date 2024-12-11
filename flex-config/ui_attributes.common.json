@@ -424,9 +424,6 @@
         "enabled": false,
         "region": ""
       },
-      "hold_timer": {
-        "enabled": false
-      },
       "conditional_recording": {
         "enabled": false,
         "exclude_attributes": [],
