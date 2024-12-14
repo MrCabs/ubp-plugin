@@ -426,7 +426,12 @@
         "enabled": false,
         "region": ""
       },
-      "hold_timer": {
+      "conditional_recording": {
+        "enabled": false,
+        "exclude_attributes": [],
+        "exclude_queues": []
+      },
+      "supervisor_ui": {
         "enabled": false
       }
     }
