@@ -2,19 +2,6 @@ import ApiService from '../../../utils/serverless/ApiService';
 import { EncodedParams } from '../../../types/serverless';
 import logger from '../../../utils/logger';
 
-export interface AgentAutomationConfig {
-  channel: string;
-  auto_accept: boolean;
-  auto_select: boolean;
-  auto_wrapup: boolean;
-  wrapup_time: number;
-  allow_extended_wrapup: boolean;
-  extended_wrapup_time: number;
-  default_outcome: string;
-  required_attributes: string[];
-  required_worker_attributes: string[];
-}
-
 export interface SupervisorUiServiceResponse {
   configuration: any;
 }

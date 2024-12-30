@@ -7,6 +7,8 @@ import { useToaster, Toaster } from '@twilio-paste/core/toast';
 
 import { StringTemplates } from '../../flex-hooks/strings';
 import AgentAutomationTab from './Tabs/AgentAutomation';
+import AudioAdvisoryTab from './Tabs/AudioAdvisoryTab';
+import IvrSetting from './Tabs/IvrControlSetting';
 
 const SupervisorSettings = () => {
   const randomComponentId = useUID();
@@ -29,10 +31,24 @@ const SupervisorSettings = () => {
 
       <Tabs selectedId={randomComponentId} baseId="settings" orientation="vertical" state={tabState}>
         <TabList aria-label="Supervisor Settings">
+          <Tab>IVR Control Settings</Tab>
+          <Tab>IVR Advisory</Tab>
           <Tab id={randomComponentId}>Agent Automation</Tab>
           <Toaster {...toaster} />
         </TabList>
         <TabPanels>
+          <TabPanel>
+            <Heading as="h3" variant="heading30">
+              IVR Control
+            </Heading>
+            <IvrSetting toasterSuccessNotification={toasterSuccessNotification} />
+          </TabPanel>
+          <TabPanel>
+            <Heading as="h3" variant="heading30">
+              Audio Advisory Settings
+            </Heading>
+            <AudioAdvisoryTab />
+          </TabPanel>
           <TabPanel>
             <Heading as="h3" variant="heading30">
               Agent Automation Settings

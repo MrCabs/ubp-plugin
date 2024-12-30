@@ -18,11 +18,24 @@ import { Tooltip } from '@twilio-paste/core/tooltip';
 import { InputBox } from '@twilio-paste/core/input-box';
 import { Separator } from '@twilio-paste/core/separator';
 
-import SupervisorUiService, { AgentAutomationConfig } from '../../../utils/SupervisorUiService';
+import SupervisorUiService from '../../../utils/SupervisorUiService';
 import { StringTemplates } from '../../../flex-hooks/strings';
 
 interface AgentAutomationProps {
   toasterSuccessNotification: (message: string) => void;
+}
+
+export interface AgentAutomationConfig {
+  channel: string;
+  auto_accept: boolean;
+  auto_select: boolean;
+  auto_wrapup: boolean;
+  wrapup_time: number;
+  allow_extended_wrapup: boolean;
+  extended_wrapup_time: number;
+  default_outcome: string;
+  required_attributes: string[];
+  required_worker_attributes: string[];
 }
 
 const useMediaQuery = (query: string) => {
@@ -75,7 +88,7 @@ const defaultConfig: AgentAutomationConfig = {
   required_worker_attributes: [],
 };
 
-const AgentAutomation: React.FC<AgentAutomationProps> = ({ toasterSuccessNotification }) => {
+const AgentAutomation = ({ toasterSuccessNotification }: AgentAutomationProps) => {
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string>('');
   const [config, setConfig] = useState<AgentAutomationConfig>(defaultConfig);
