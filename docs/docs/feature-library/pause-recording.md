@@ -2,6 +2,9 @@
 sidebar_label: pause-recording
 title: Pause & Resume Call Recording
 ---
+import PluginLibraryFeature from "./_plugin-library-feature.md";
+
+<PluginLibraryFeature />
 
 This feature adds a Pause/Resume Recording button and keyboard shortcuts to the call canvas to allow the agent to temporarily pause the call recording before the customer provides sensitive information (such as credit card details, bank account, etc.) to the agent and to resume regular call recording afterwards.
 
@@ -23,7 +26,7 @@ There are some additional configuration properties you may change if desired:
 
 ## keyboard shortcuts
 
-Default keyboard shortcuts have been created but may be remapped using the keyboard shortcut feature. By default, the following keys are mapped:
+Pause/resume recording keyboard shortcuts have been created using a [keyboard-shortcuts Flex hook](/building/flex-hooks/keyboard-shortcuts). These may be remapped using the `keyboard-shortcuts` feature. By default, the following keys are mapped:
 
 | Key | Full Command     | Action                                     |
 | --- | ---------------- | ------------------------------------------ |
@@ -35,7 +38,7 @@ Default keyboard shortcuts have been created but may be remapped using the keybo
 
 This plugin leverages Twilio Functions to perform the actual Pause and Resume action on the call or conference resource. When using the dual channel recording feature, the recording is on the call resource; when using the out-of-box recording feature, the recording is on the conference resource.
 
-Additionally this plugin registers additional Flex Actions that may be invoked by other plugins or features:
+Additionally, this plugin registers Flex Actions that may be invoked by other plugins or features:
 
 | Action                | Payload           |
 | --------------------- | ----------------- |

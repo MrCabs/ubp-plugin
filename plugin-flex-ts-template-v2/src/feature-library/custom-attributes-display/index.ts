@@ -5,5 +5,5 @@ import hooks from './flex-hooks/**/*.*';
 
 export const register = (): FeatureDefinition => {
   if (!isFeatureEnabled()) return {};
-  return { name: 'hold-timer', hooks: typeof hooks === 'undefined' ? [] : hooks };
+  return { name: 'custom-attributes-display', hooks: typeof hooks === 'undefined' ? [] : hooks };
 };
