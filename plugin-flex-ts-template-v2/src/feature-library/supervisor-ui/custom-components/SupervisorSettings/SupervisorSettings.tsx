@@ -9,6 +9,7 @@ import { StringTemplates } from '../../flex-hooks/strings';
 import AgentAutomationTab from './Tabs/AgentAutomation';
 import AudioAdvisoryTab from './Tabs/AudioAdvisoryTab';
 import IvrSetting from './Tabs/IvrControlSetting';
+import { isAgentAutomationEnabled, isIvrAdvisoryEnabled, isIvrSettingEnabled } from '../../config';
 
 const SupervisorSettings = () => {
   const randomComponentId = useUID();
@@ -23,40 +24,54 @@ const SupervisorSettings = () => {
     });
   };
 
+  const tabs = [
+    isIvrSettingEnabled() && {
+      id: 'ivr-setting',
+      label: 'IVR Control Settings',
+      component: <IvrSetting toasterSuccessNotification={toasterSuccessNotification} />,
+    },
+    isIvrAdvisoryEnabled() && {
+      id: 'ivr-advisory',
+      label: 'IVR Announcement',
+      component: <AudioAdvisoryTab toasterSuccessNotification={toasterSuccessNotification} />,
+    },
+    isAgentAutomationEnabled() && {
+      id: 'agent-automation',
+      label: 'Flex Agent Automation',
+      component: <AgentAutomationTab toasterSuccessNotification={toasterSuccessNotification} />,
+    },
+  ].filter(Boolean); // Remove any `false` values
+
   return (
     <Box overflow="auto" padding="space80" width="100%">
       <Heading as="h1" variant="heading10">
         <Template source={templates[StringTemplates.SupervisorSettingsTitle]} />
       </Heading>
 
-      <Tabs selectedId={randomComponentId} baseId="settings" orientation="vertical" state={tabState}>
-        <TabList aria-label="Supervisor Settings">
-          <Tab>IVR Control Settings</Tab>
-          <Tab>IVR Advisory</Tab>
-          <Tab id={randomComponentId}>Agent Automation</Tab>
-          <Toaster {...toaster} />
-        </TabList>
-        <TabPanels>
-          <TabPanel>
-            <Heading as="h3" variant="heading30">
-              IVR Control
-            </Heading>
-            <IvrSetting toasterSuccessNotification={toasterSuccessNotification} />
-          </TabPanel>
-          <TabPanel>
-            <Heading as="h3" variant="heading30">
-              Audio Advisory Settings
-            </Heading>
-            <AudioAdvisoryTab />
-          </TabPanel>
-          <TabPanel>
-            <Heading as="h3" variant="heading30">
-              Agent Automation Settings
-            </Heading>
-            <AgentAutomationTab toasterSuccessNotification={toasterSuccessNotification} />
-          </TabPanel>
-        </TabPanels>
-      </Tabs>
+      {tabs.length > 0 ? (
+        <Tabs selectedId={randomComponentId} baseId="settings" orientation="vertical" state={tabState}>
+          <TabList aria-label="Supervisor Settings">
+            {tabs.map((tab) => (
+              <Tab key={tab.id}>{tab.label}</Tab>
+            ))}
+            <Toaster {...toaster} />
+          </TabList>
+          <TabPanels>
+            {tabs.map((tab) => (
+              <TabPanel key={tab.id}>
+                <Heading as="h3" variant="heading30">
+                  {tab.label}
+                </Heading>
+                {tab.component}
+              </TabPanel>
+            ))}
+          </TabPanels>
+        </Tabs>
+      ) : (
+        <Heading as="h3" variant="heading30">
+          No available settings.
+        </Heading>
+      )}
     </Box>
   );
 };
