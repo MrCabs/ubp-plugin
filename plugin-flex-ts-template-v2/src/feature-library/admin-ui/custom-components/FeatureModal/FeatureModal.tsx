@@ -10,6 +10,7 @@ import { Button } from '@twilio-paste/core/button';
 import { Input } from '@twilio-paste/core/input';
 import { HelpText } from '@twilio-paste/core/help-text';
 import { Form, FormControl } from '@twilio-paste/core/form';
+import { Select, Option } from '@twilio-paste/core/select';
 import { useUID, useUIDSeed } from '@twilio-paste/core/uid-library';
 import { Modal, ModalBody, ModalFooter, ModalFooterActions, ModalHeader, ModalHeading } from '@twilio-paste/core/modal';
 import { SkipBackIcon } from '@twilio-paste/icons/esm/SkipBackIcon';
@@ -34,6 +35,17 @@ interface CustomComponentPayload {
   setAllowSave: (featureName: string, allowSave: boolean) => void;
   component?: React.ComponentType;
   hideDefaultComponents?: boolean;
+}
+
+interface SelectOption {
+  value: string;
+  label: string;
+}
+
+interface SelectConfig {
+  type: 'select';
+  value: string;
+  options: SelectOption[];
 }
 
 const FeatureModal = ({ feature, configureFor, isUserModified, config, isOpen, handleClose, handleSave }: Props) => {
@@ -211,52 +223,81 @@ const FeatureModal = ({ feature, configureFor, isUserModified, config, isOpen, h
                     );
                     break;
                   default:
-                    controls = (
-                      <>
-                        <Label htmlFor={seed(`${feature}-${key}`)}>{formatName(key)}</Label>
-                        <TextArea
-                          id={seed(`${feature}-${key}`)}
-                          name={seed(`${feature}-${key}`)}
-                          value={
-                            typeof modifiedConfig[key] === 'string'
-                              ? modifiedConfig[key]
-                              : JSON.stringify(modifiedConfig[key], null, 2)
-                          }
-                          resize="vertical"
-                          element="ADMIN_CODE_TEXTAREA"
-                          hasError={invalidInputs.includes(key)}
-                          onChange={(e) => {
-                            try {
-                              const parsed = JSON.parse(e.target.value);
-                              if (parsed && typeof parsed === 'object') {
-                                // valid JSON
-                                if (invalidInputs.includes(key)) {
-                                  setInvalidInputs((invalidInputs: string[]) =>
-                                    invalidInputs.filter((feature) => feature !== key),
-                                  );
-                                }
-                              } else if (!invalidInputs.includes(key)) {
-                                setInvalidInputs((invalidInputs: string[]) => [...invalidInputs, key]);
-                              }
-                            } catch (error) {
-                              if (!invalidInputs.includes(key)) {
-                                setInvalidInputs((invalidInputs: string[]) => [...invalidInputs, key]);
-                              }
+                    if (value && typeof value === 'object' && 'type' in value && value.type === 'select') {
+                      const selectConfig = value as SelectConfig;
+                      controls = (
+                        <>
+                          <Label htmlFor={seed(`${feature}-${key}`)}>{formatName(key)}</Label>
+                          <Select
+                            id={seed(`${feature}-${key}`)}
+                            name={seed(`${feature}-${key}`)}
+                            value={modifiedConfig[key].value}
+                            onChange={(e) =>
+                              setModifiedConfig((modifiedConfig: any) => ({
+                                ...modifiedConfig,
+                                [key]: {
+                                  ...modifiedConfig[key],
+                                  value: e.target.value,
+                                },
+                              }))
                             }
-                            // save as string to allow frustration-free edits, later parsed in save()
-                            setModifiedConfig((modifiedConfig: any) => ({
-                              ...modifiedConfig,
-                              [key]: e.target.value,
-                            }));
-                          }}
-                        />
-                        {invalidInputs.includes(key) && (
-                          <HelpText variant="error">
-                            <Template source={templates[StringTemplates.INVALID_JSON]} />
-                          </HelpText>
-                        )}
-                      </>
-                    );
+                          >
+                            {selectConfig.options.map((option) => (
+                              <Option key={option.value} value={option.value}>
+                                {option.label}
+                              </Option>
+                            ))}
+                          </Select>
+                        </>
+                      );
+                    } else {
+                      controls = (
+                        <>
+                          <Label htmlFor={seed(`${feature}-${key}`)}>{formatName(key)}</Label>
+                          <TextArea
+                            id={seed(`${feature}-${key}`)}
+                            name={seed(`${feature}-${key}`)}
+                            value={
+                              typeof modifiedConfig[key] === 'string'
+                                ? modifiedConfig[key]
+                                : JSON.stringify(modifiedConfig[key], null, 2)
+                            }
+                            resize="vertical"
+                            element="ADMIN_CODE_TEXTAREA"
+                            hasError={invalidInputs.includes(key)}
+                            onChange={(e) => {
+                              try {
+                                const parsed = JSON.parse(e.target.value);
+                                if (parsed && typeof parsed === 'object') {
+                                  // valid JSON
+                                  if (invalidInputs.includes(key)) {
+                                    setInvalidInputs((invalidInputs: string[]) =>
+                                      invalidInputs.filter((feature) => feature !== key),
+                                    );
+                                  }
+                                } else if (!invalidInputs.includes(key)) {
+                                  setInvalidInputs((invalidInputs: string[]) => [...invalidInputs, key]);
+                                }
+                              } catch (error) {
+                                if (!invalidInputs.includes(key)) {
+                                  setInvalidInputs((invalidInputs: string[]) => [...invalidInputs, key]);
+                                }
+                              }
+                              // save as string to allow frustration-free edits, later parsed in save()
+                              setModifiedConfig((modifiedConfig: any) => ({
+                                ...modifiedConfig,
+                                [key]: e.target.value,
+                              }));
+                            }}
+                          />
+                          {invalidInputs.includes(key) && (
+                            <HelpText variant="error">
+                              <Template source={templates[StringTemplates.INVALID_JSON]} />
+                            </HelpText>
+                          )}
+                        </>
+                      );
+                    }
                     break;
                 }
 

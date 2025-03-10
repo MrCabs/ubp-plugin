@@ -1,5 +1,5 @@
 import { getFeatureFlags } from '../../utils/configuration';
-import type { OutboundCallerIdConfig } from './types/ServiceConfiguration';
+import type { OutboundCallerIdConfig, SelectConfig } from './types/ServiceConfiguration';
 
 export const isFeatureEnabled = (): boolean => {
   return getFeatureFlags()?.features?.outbound_caller_id?.enabled || false;
@@ -19,4 +19,14 @@ export const getConfig = (): OutboundCallerIdConfig | null => {
     carrier_prefixes: config.carrier_prefixes,
     number_types: config.number_types,
   };
+};
+
+export const getSipAddressValue = (sipAddress: string | SelectConfig | undefined): string | undefined => {
+  if (typeof sipAddress === 'string') {
+    return sipAddress;
+  }
+  if (sipAddress && 'type' in sipAddress && sipAddress.type === 'select') {
+    return sipAddress.value;
+  }
+  return undefined;
 };
