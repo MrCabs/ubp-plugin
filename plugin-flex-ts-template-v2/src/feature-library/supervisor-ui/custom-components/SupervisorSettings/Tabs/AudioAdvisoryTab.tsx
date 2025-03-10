@@ -10,7 +10,7 @@ import { Text } from '@twilio-paste/core/text';
 import { HelpText } from '@twilio-paste/core/help-text';
 import { Switch } from '@twilio-paste/core/switch';
 import { Label } from '@twilio-paste/core/label';
-import { TextArea } from '@twilio-paste/core/TextArea';
+import { TextArea } from '@twilio-paste/core/textarea';
 import { InputBox } from '@twilio-paste/core/input-box';
 import { PlayIcon } from '@twilio-paste/icons/esm/PlayIcon';
 import { PauseIcon } from '@twilio-paste/icons/esm/PauseIcon';
