@@ -24,7 +24,7 @@
         "@twilio-paste/icons": "^9.4.2",
         "@twilio/flex-plugin": "7.1.0",
         "array-move": "^4.0.0",
-        "emoji-mart": "^3.0.1",
+        "emoji-mart": "5.5.2",
         "filepond": "^4.32.5",
         "filepond-plugin-file-encode": "^2.1.14",
         "filepond-plugin-file-validate-type": "^1.2.8",
