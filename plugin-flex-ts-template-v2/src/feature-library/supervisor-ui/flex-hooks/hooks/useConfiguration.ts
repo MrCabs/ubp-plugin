@@ -35,8 +35,10 @@ export const useConfiguration = <T>({
       setIsLoading(true);
       setError('');
 
-      if (getFeaturesConfig()?.[featureName]?.configuration) {
-        const fetchedConfig = getFeaturesConfig()?.[featureName].configuration;
+      const response = await SupervisorUiService.fetchUiAttributes();
+
+      if (response?.configuration?.custom_data?.features?.[featureName]?.configuration) {
+        const fetchedConfig = response.configuration.custom_data.features[featureName].configuration;
 
         if (isArrayConfig) {
           // For array configurations (like agent_automation), find the voice channel config
