@@ -7,6 +7,7 @@ const axios = require('axios');
 const AWS_API_GATEWAY_DOMAIN = process.env.AWS_API_GATEWAY_DOMAIN;
 const AWS_API_KEY = process.env.AWS_API_KEY;
 const AWS_HANDLE_TIMEOUT = process.env.AWS_HANDLE_TIMEOUT;
+const MAIN_HOTLINE_WEBHOOK_URL = process.env.MAIN_HOTLINE_WEBHOOK_URL;
 
 exports.handler = async (context, event, callback) => {
   const twiml = new Twilio.twiml.VoiceResponse();
@@ -32,10 +33,13 @@ exports.handler = async (context, event, callback) => {
       throw new Error('No audio files or message configured');
     }
 
+    twiml.redirect(`${MAIN_HOTLINE_WEBHOOK_URL}?FlowEvent=return`);
+
     return callback(null, twiml);
   } catch (error) {
     console.log('error', error);
-    return callback(twiml);
+    twiml.redirect(`${MAIN_HOTLINE_WEBHOOK_URL}?FlowEvent=return`);
+    return callback(null, twiml);
   }
 };
 
