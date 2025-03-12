@@ -33,12 +33,12 @@ exports.handler = async (context, event, callback) => {
       throw new Error('No audio files or message configured');
     }
 
-    twiml.redirect(`${MAIN_HOTLINE_WEBHOOK_URL}?FlowEvent=return`);
+    twiml.redirect(`https://${MAIN_HOTLINE_WEBHOOK_URL}?FlowEvent=return`);
 
     return callback(null, twiml);
   } catch (error) {
     console.log('error', error);
-    twiml.redirect(`${MAIN_HOTLINE_WEBHOOK_URL}?FlowEvent=return`);
+    twiml.redirect(`https://${MAIN_HOTLINE_WEBHOOK_URL}?FlowEvent=return`);
     return callback(null, twiml);
   }
 };
