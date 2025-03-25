@@ -28,11 +28,84 @@ const DirectoryItemContainer = styled('div')`
   display: flex;
   justify-content: flex-start;
   align-items: center;
+  position: relative;
+  width: 100%;
+`;
+
+const ClosedBadge = styled('div')`
+  background-color: #0263e0;
+  color: #ffffff;
+  font-size: 10px;
+  font-weight: normal;
+  padding: 0px 4px;
+  border-radius: 4px;
+  text-transform: uppercase;
+  cursor: pointer;
+`;
+
+const DisabledText = styled(Text)`
+  color: var(--twilio-gray-60);
+`;
+
+const EntryRow = styled('div')`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+`;
+
+const LabelContainer = styled('div')`
+  display: flex;
+  flex: 1;
+`;
+
+const BadgeContainer = styled('div')`
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  margin-right: 16px;
+  position: relative;
+`;
+
+// Custom tooltip implementation for better z-index control
+const TooltipContainer = styled('div')`
+  position: absolute;
+  bottom: 100%;
+  right: 0;
+  background-color: rgba(0, 0, 0, 0.8);
+  color: white;
+  padding: 8px 12px;
+  border-radius: 4px;
+  font-size: 12px;
+  white-space: nowrap;
+  margin-bottom: 8px;
+  z-index: 9999;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.2s;
+
+  &.visible {
+    opacity: 1;
+  }
+
+  &:after {
+    content: '';
+    position: absolute;
+    top: 100%;
+    right: 10px;
+    border-width: 6px;
+    border-style: solid;
+    border-color: rgba(0, 0, 0, 0.8) transparent transparent transparent;
+  }
 `;
 
 const DirectoryItem = (props: DirectoryItemProps) => {
   const { entry, task, onTransferClick } = props;
   const [isHovered, setIsHovered] = useState(false);
+  const [showTooltip, setShowTooltip] = useState(false);
+
+  // Determine if this entry is disabled due to scheduling
+  const isDisabled = !entry.cold_transfer_enabled && !entry.warm_transfer_enabled;
 
   const onWarmTransferClick = () => {
     onTransferClick({ mode: 'WARM' });
@@ -57,15 +130,41 @@ const DirectoryItem = (props: DirectoryItemProps) => {
     }
   };
 
+  // Custom badge with direct tooltip management
+  const renderBadge = (): React.JSX.Element | null => {
+    if (!isDisabled) return null;
+
+    return (
+      <BadgeContainer>
+        <ClosedBadge onMouseEnter={() => setShowTooltip(true)} onMouseLeave={() => setShowTooltip(false)}>
+          Closed
+        </ClosedBadge>
+        <TooltipContainer className={showTooltip ? 'visible' : ''}>
+          This hotline is currently closed according to its schedule
+        </TooltipContainer>
+      </BadgeContainer>
+    );
+  };
+
   const renderLabel = (): React.JSX.Element => (
-    <Box key={`directory-item-label-${entry.type}-${entry.key}`} element="TRANSFER_DIR_COMMON_ROW_LABEL">
-      {entry.labelComponent ? (
-        entry.labelComponent()
-      ) : (
-        <Text as="div" className="Twilio" element="TRANSFER_DIR_COMMON_ROW_NAME">
-          {entry.label}
-        </Text>
-      )}
+    <Box key={`directory-item-label-${entry.type}-${entry.key}`} element="TRANSFER_DIR_COMMON_ROW_LABEL" width="100%">
+      <EntryRow>
+        <LabelContainer>
+          {entry.labelComponent ? (
+            entry.labelComponent()
+          ) : isDisabled ? (
+            <DisabledText as="div" className="Twilio" element="TRANSFER_DIR_COMMON_ROW_NAME">
+              {entry.label}
+            </DisabledText>
+          ) : (
+            <Text as="div" className="Twilio" element="TRANSFER_DIR_COMMON_ROW_NAME">
+              {entry.label}
+            </Text>
+          )}
+        </LabelContainer>
+
+        {renderBadge()}
+      </EntryRow>
     </Box>
   );
 
@@ -78,6 +177,7 @@ const DirectoryItem = (props: DirectoryItemProps) => {
       <Box key={`directory-item-icon-${entry.type}-${entry.key}`} element="TRANSFER_DIR_COMMON_ROW_ICON">
         {renderIcon()}
       </Box>
+
       {isHovered && entry.tooltip ? (
         <Tooltip
           key={`directory-item-label-tooltip-${entry.type}-${entry.key}`}

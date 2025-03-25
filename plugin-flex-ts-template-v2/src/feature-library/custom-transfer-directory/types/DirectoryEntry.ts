@@ -15,4 +15,13 @@ export interface ExternalDirectoryEntry {
   warm_transfer_enabled: boolean;
   label: string;
   number: string;
+  check_schedule?: {
+    enabled: boolean;
+    account_sid: string;
+    api_key: string;
+    api_secret: string;
+    environment: string;
+    serverless_domain: string;
+    schedule_name: string;
+  };
 }
