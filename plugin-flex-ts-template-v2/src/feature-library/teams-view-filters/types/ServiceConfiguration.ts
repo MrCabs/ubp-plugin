@@ -10,4 +10,5 @@ export default interface TeamViewFiltersConfig {
     team: boolean;
     agent_skills: boolean;
   };
+  hide_specific_activities?: string[];
 }
