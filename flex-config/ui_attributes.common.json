@@ -430,6 +430,9 @@
         "enabled": false,
         "exclude_attributes": [],
         "exclude_queues": []
+      },
+      "ucc_activity_countdown_timer": {
+        "enabled": false
       }
     }
   }
