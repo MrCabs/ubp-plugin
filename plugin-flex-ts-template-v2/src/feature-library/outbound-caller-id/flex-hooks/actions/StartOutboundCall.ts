@@ -2,7 +2,7 @@ import * as Flex from '@twilio/flex-ui';
 
 import { OutboundCallerIdHelper } from '../../helpers/OutboundCallerIdHelper';
 import { FlexActionEvent, FlexAction } from '../../../../types/feature-loader';
-import { getConfig } from '../../config';
+import { getConfig, getSipAddressValue } from '../../config';
 import { SipConfiguration } from '../../types/ServiceConfiguration';
 
 export const actionEvent = FlexActionEvent.before;
@@ -36,8 +36,11 @@ export const actionHook = function applyRandomCallerIdForDialedNumbers(flex: typ
     // Update the payload with the selected caller ID
     payload.callerId = callerId || config.default_caller_id;
 
+    // Get the actual SIP address value, handling both string and SelectConfig types
+    const sipAddress = getSipAddressValue(config.sip_address);
+
     // Format SIP destination if SIP address is configured
-    if (config.sip_address) {
+    if (sipAddress) {
       // Build SIP URI parameters
       const params = new URLSearchParams();
       const sipConfig: SipConfiguration = config.sip_config || {};
@@ -61,8 +64,8 @@ export const actionHook = function applyRandomCallerIdForDialedNumbers(flex: typ
 
       // Build the SIP URI
       const sipUri = paramsString
-        ? `sip:${destination}@${config.sip_address};${paramsString}`
-        : `sip:${destination}@${config.sip_address}`;
+        ? `sip:${destination}@${sipAddress};${paramsString}`
+        : `sip:${destination}@${sipAddress}`;
 
       // Use the full SIP URI for the actual call
       (payload as any).destination = sipUri;
