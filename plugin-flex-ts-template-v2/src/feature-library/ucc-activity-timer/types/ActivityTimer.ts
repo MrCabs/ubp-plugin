@@ -44,6 +44,16 @@ export interface TimerConfig {
   exceededThreshold: number;
 }
 
+export interface TimerDataType {
+  activityName: string;
+  formattedTime: string;
+  status: 'normal' | 'warning' | 'exceeded';
+}
+
+export interface ActivityTimerProps {
+  theme?: any;
+}
+
 export const DEFAULT_ACTIVITIES_CONFIG: Record<string, TimerConfig> = {
   'On Hold': {
     timerType: 'per-call',
@@ -59,10 +69,5 @@ export const DEFAULT_ACTIVITIES_CONFIG: Record<string, TimerConfig> = {
     timerType: 'per-day',
     warningThreshold: 14400,
     exceededThreshold: 21600,
-  },
-  Unavailable: {
-    timerType: 'per-day',
-    warningThreshold: 1800,
-    exceededThreshold: 3600,
   },
 };
