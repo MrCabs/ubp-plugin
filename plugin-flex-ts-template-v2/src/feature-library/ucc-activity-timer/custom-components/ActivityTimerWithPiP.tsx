@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 
 import ActivityTimerManager from '../helper/activityTimerManager';
-import { PiPIcon, ExitPiPIcon } from './ActivityTimerWithPiP/Icon/Icons';
+import { PiPIcon, ExitPiPIcon } from './ActivityTimerWithPiP/PIPIcon/ActivityTimerIcons';
 import {
   TimerContainer,
   ActivityName,
