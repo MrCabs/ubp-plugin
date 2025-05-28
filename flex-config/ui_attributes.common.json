@@ -431,6 +431,12 @@
         "enabled": false,
         "exclude_attributes": [],
         "exclude_queues": []
+<<<<<<< HEAD
+      },
+      "supervisor_ui": {
+        "enabled": false
+=======
+>>>>>>> 83c2cc1a9f8a10269a7e0565343ba9d7c9b8a8dc
       }
     }
   }

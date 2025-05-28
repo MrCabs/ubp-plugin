@@ -31,6 +31,7 @@
     "react-query": "^3.39.2",
     "twilio": "^5.0.1",
     "twilio-video": "^2.27.0",
+    "twilio-video-demo-app": "file:",
     "yup": "^0.32.11",
     "zustand": "^4.1.4"
   },
