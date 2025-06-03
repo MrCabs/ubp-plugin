@@ -14,11 +14,16 @@ export const eventHook = function registerTlView(flex: typeof Flex, manager: Fle
     flex.Notifications.showNotification(NotificationIds.MissingBusinessUnit as string);
   }
 
-  if (isTechLeadViewEnabled()) return;
+  // If tech lead view is enabled, allow supervisors/admins to access teams view
+  if (isTechLeadViewEnabled()) {
+    if (myWorkerRoles && (myWorkerRoles.includes('supervisor') || myWorkerRoles.includes('admin'))) {
+      Actions.invokeAction('NavigateToView', { viewName: 'teams' });
+    }
+    return;
+  }
 
-  console.log('🚀 ~ componentHook ~ myWorkerRoles:', myWorkerRoles);
-
-  if (myWorkerRoles.includes('supervisor') || myWorkerRoles.includes('admin')) {
+  // If tech lead view is disabled, restrict supervisors/admins to agent-desktop
+  if (myWorkerRoles && (myWorkerRoles.includes('supervisor') || myWorkerRoles.includes('admin'))) {
     Actions.invokeAction('NavigateToView', { viewName: 'agent-desktop' });
   }
 };
