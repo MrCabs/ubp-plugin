@@ -1,0 +1,212 @@
+# GitLab CI configuration generated from GitHub Actions workflows
+
+# Global image for Node projects
+image: node:18
+
+stages:
+  - lint
+  - test
+  - build
+  - deploy
+  - cleanup
+
+# ----------------------
+# Derived from .github/workflows/checks.yaml
+# ----------------------
+
+lint:
+  stage: lint
+  script:
+    - npm install --ignore-scripts
+    - npm run postinstall -- --skip-env
+    - npm run lint:report
+  allow_failure: true
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "main"'
+      changes:
+        - plugin-flex-ts-template-v2/**/*
+        - serverless-functions/**/*
+        - addons/**/*
+    - when: manual
+
+plugin_tests:
+  stage: test
+  script:
+    - cd plugin-flex-ts-template-v2
+    - npm install
+    - npm run test:ci
+  artifacts:
+    when: always
+    paths:
+      - plugin-flex-ts-template-v2/test-results/junit.xml
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "main"'
+      changes:
+        - plugin-flex-ts-template-v2/**/*
+    - when: manual
+
+# ----------------------
+# Derived from .github/workflows/docs_checks.yaml
+# ----------------------
+
+docs_build:
+  stage: build
+  script:
+    - cd docs
+    - npm install
+    - npm run build
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "main" && $DEPLOY_DOCS == "true"'
+      changes:
+        - docs/**/*
+    - when: manual
+
+# ----------------------
+# Derived from .github/workflows/deploy_docs_gh_pages.yml
+# ----------------------
+
+pages:
+  stage: deploy
+  script:
+    - cd docs
+    - npm install
+    - npm run build
+    - mv build ../public
+  artifacts:
+    paths:
+      - public
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "main" && $DEPLOY_DOCS == "true"'
+      changes:
+        - docs/**/*
+
+# ----------------------
+# Derived from .github/workflows/terraform_deploy.yaml
+# ----------------------
+
+.terraform_deploy_template:
+  stage: deploy
+  variables:
+    ENCRYPTION_KEY: $TF_ENCRYPTION_KEY
+    TWILIO_ACCOUNT_SID: $TWILIO_ACCOUNT_SID
+    TWILIO_API_KEY: $TWILIO_API_KEY
+    TWILIO_API_SECRET: $TWILIO_API_SECRET
+    TWILIO_REGION: $TWILIO_REGION
+    ENVIRONMENT: $ENVIRONMENT
+  script:
+    - npm install --ignore-scripts
+    - npm run install-serverless-plugin
+    - cd infra-as-code/state
+    - ./pull_state.sh
+    - ./import_internal_state.sh
+    - ./push_state.sh
+
+# ----------------------
+# Derived from .github/workflows/terraform_delete.yaml
+# ----------------------
+
+terraform_delete_state:
+  stage: cleanup
+  when: manual
+  variables:
+    TWILIO_ACCOUNT_SID: $TWILIO_ACCOUNT_SID
+    TWILIO_API_KEY: $TWILIO_API_KEY
+    TWILIO_API_SECRET: $TWILIO_API_SECRET
+    TWILIO_REGION: $TWILIO_REGION
+    ENVIRONMENT: $ENVIRONMENT
+  script:
+    - npm install -g twilio-cli
+    - twilio plugins:install @twilio-labs/plugin-serverless
+    - cd infra-as-code/state
+    - ./delete.sh
+
+# ----------------------
+# Derived from .github/workflows/flex_deploy.yaml
+# ----------------------
+
+validate_environment:
+  stage: deploy
+  resource_group: "flex-deploy-$ENVIRONMENT"
+  variables:
+    ENVIRONMENT: $ENVIRONMENT
+  script:
+    - scripts/github-set-env.sh
+    - npm install --ignore-scripts
+    - npm run -s validate-environment
+  when: manual
+
+perform_initial_serverless_release:
+  stage: deploy
+  needs:
+    - validate_environment
+  rules:
+    - if: '$INITIAL_RELEASE == "true" && $DEPLOY_TERRAFORM == "true"'
+      when: manual
+    - when: never
+  variables:
+    ENVIRONMENT: $ENVIRONMENT
+  script:
+    - npm install --ignore-scripts
+    - npm run install-serverless-plugin
+    - npm run postinstall -- --skip-plugin
+    - npm run deploy-addons
+    - cd serverless-functions
+    - npm run deploy
+
+deploy_terraform:
+  stage: deploy
+  needs:
+    - perform_initial_serverless_release
+    - validate_environment
+  rules:
+    - if: '$DEPLOY_TERRAFORM == "true"'
+      when: manual
+    - when: never
+  extends: .terraform_deploy_template
+
+deploy_packages:
+  stage: deploy
+  needs:
+    - deploy_terraform
+    - validate_environment
+  variables:
+    ENVIRONMENT: $ENVIRONMENT
+  script:
+    - npm install --ignore-scripts
+    - npm run install-serverless-plugin
+    - npm run postinstall -- --skip-plugin
+    - npm run deploy-addons
+    - cd serverless-functions
+    - npm run deploy
+  when: manual
+
+deploy_flex_config:
+  stage: deploy
+  needs:
+    - deploy_packages
+    - validate_environment
+  variables:
+    ENVIRONMENT: $ENVIRONMENT
+    OVERWRITE_CONFIG: $OVERWRITE_CONFIG
+  script:
+    - npm install --ignore-scripts
+    - npm run postinstall -- --packages=flex-config
+    - cd flex-config
+    - npm run deploy
+  when: manual
+
+deploy_release_plugin:
+  stage: deploy
+  needs:
+    - validate_environment
+  variables:
+    PLUGIN_FOLDER: plugin-flex-ts-template-v2
+  script:
+    - npm install --ignore-scripts
+    - cd $PLUGIN_FOLDER
+    - npm install
+    - npm run install-flex-plugin
+    - npm run deploy -- --changelog="Deploy from CI/CD for commit $CI_COMMIT_SHA"
+    - npm run release -- --name="Release from CI/CD for commit $CI_COMMIT_SHA" --description="Release from CI/CD for commit $CI_COMMIT_SHA"
+  when: manual
+
