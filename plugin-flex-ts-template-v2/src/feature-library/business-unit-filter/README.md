@@ -5,6 +5,7 @@ This feature allows filtering of Teams View, Queue Stats, and Worker Skills base
 ## Overview
 
 The Business Unit Filter feature provides the following functionality:
+
 - Filters Teams View to only show workers within the same business unit
 - Filters Queue Stats to only show queues associated with the business unit
 - Filters available Worker Skills based on the business unit's task queues
@@ -24,10 +25,7 @@ The feature can be enabled via the `flex-config` attributes:
         "enabled": true,
         "tech_lead_view": false,
         "business_units": {
-          "UNIT_NAME": [
-            "Queue Name 1",
-            "Queue Name 2"
-          ]
+          "UNIT_NAME": ["Queue Name 1", "Queue Name 2"]
         }
       }
     }
@@ -46,6 +44,7 @@ The feature can be enabled via the `flex-config` attributes:
 Workers must have a `business_unit` attribute in their Worker attributes. This attribute should match one of the business unit names configured in the feature settings.
 
 Example Worker attributes:
+
 ```json
 {
   "business_unit": "UNIT_NAME"
@@ -75,3 +74,14 @@ The feature uses several components to implement the filtering:
 - `QueueStats.tsx`: Filters queue statistics to show only relevant queues
 - `WorkerSkills.tsx`: Filters available skills based on business unit queues
 - `UnitHelper.ts`: Contains helper functions for business unit operations
+
+### Special Business Unit Cases
+
+#### CESG Business Unit
+
+Workers assigned to the CESG business unit have access to teams from multiple business units:
+
+- CESG
+- VET
+- UBS
+- SSDRT
