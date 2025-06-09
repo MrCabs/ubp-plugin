@@ -15,5 +15,9 @@ export const componentHook = function addBusinessUnitFilterToTeamsView(flex: typ
     return;
   }
 
-  flex.TeamsView.defaultProps.hiddenFilter = `data.attributes.business_unit CONTAINS "${config.business_unit}"`;
+  if (config.business_unit === 'CESG') {
+    flex.TeamsView.defaultProps.hiddenFilter = `data.attributes.business_unit CONTAINS "CESG" OR data.attributes.business_unit CONTAINS "VET" OR data.attributes.business_unit CONTAINS "UBS" OR data.attributes.business_unit CONTAINS "SSDRT"`;
+  } else {
+    flex.TeamsView.defaultProps.hiddenFilter = `data.attributes.business_unit CONTAINS "${config.business_unit}"`;
+  }
 };
