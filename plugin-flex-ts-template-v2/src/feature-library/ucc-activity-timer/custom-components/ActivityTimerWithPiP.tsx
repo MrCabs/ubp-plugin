@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef, useCallback, useMemo } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 
 import ActivityTimerManager from '../helper/activityTimerManager';
 import { PiPIcon, ExitPiPIcon } from './ActivityTimerWithPiP/PIPIcon/ActivityTimerIcons';
@@ -19,12 +19,22 @@ import {
 } from './ActivityTimerWithPiP/Styling/ActivityTimerWithPiP.Styles';
 import { getStatusColor, truncateText, isPiPSupported } from '../helper/utils';
 import { TimerDataType, ActivityTimerProps } from '../types/ActivityTimer';
+import ErrorBoundary from './ErrorBoundary';
+import PiPErrorBoundary from './PiPErrorBoundary';
+
+interface ResourceTracker {
+  animationFrames: Set<number>;
+  mediaStreams: Set<MediaStream>;
+  eventListeners: Set<{ element: EventTarget; type: string; handler: EventListener }>;
+  intervals: Set<NodeJS.Timeout>;
+}
 
 const ActivityTimerWithPiP: React.FC<ActivityTimerProps> = () => {
   const [timerData, setTimerData] = useState<TimerDataType | null>(null);
   const [allTimers, setAllTimers] = useState<TimerDataType[]>([]);
   const [showAllTimers, setShowAllTimers] = useState(false);
   const [isPiPActive, setIsPiPActive] = useState(false);
+  const [isPiPLoading, setIsPiPLoading] = useState(false);
   const [isPiPSupportedState, setIsPiPSupportedState] = useState(false);
 
   const containerRef = useRef<HTMLDivElement>(null);
@@ -34,6 +44,61 @@ const ActivityTimerWithPiP: React.FC<ActivityTimerProps> = () => {
   const animationFrameRef = useRef<number | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
 
+  const canvasContext = useRef<CanvasRenderingContext2D | null>(null);
+  const canvasDimensions = useRef({ width: 480, height: 360 });
+  const canvasContextVersion = useRef(0);
+
+  const latestTimerData = useRef<TimerDataType | null>(null);
+  const latestAllTimers = useRef<TimerDataType[]>([]);
+  const renderingState = useRef({ isRendering: false, needsUpdate: false });
+  const resourceTracker = useRef<ResourceTracker>({
+    animationFrames: new Set(),
+    mediaStreams: new Set(),
+    eventListeners: new Set(),
+    intervals: new Set(),
+  });
+
+  const cleanupAllResources = useCallback(() => {
+    const tracker = resourceTracker.current;
+
+    tracker.animationFrames.forEach((frameId) => {
+      cancelAnimationFrame(frameId);
+    });
+    tracker.animationFrames.clear();
+
+    tracker.mediaStreams.forEach((stream) => {
+      stream.getTracks().forEach((track) => track.stop());
+    });
+    tracker.mediaStreams.clear();
+
+    tracker.eventListeners.forEach(({ element, type, handler }) => {
+      element.removeEventListener(type, handler);
+    });
+    tracker.eventListeners.clear();
+
+    tracker.intervals.forEach((intervalId) => {
+      clearInterval(intervalId);
+    });
+    tracker.intervals.clear();
+    if (animationFrameRef.current) {
+      cancelAnimationFrame(animationFrameRef.current);
+      animationFrameRef.current = null;
+    }
+
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+    }
+  }, []);
+
+  const addTrackedEventListener = useCallback(
+    (element: EventTarget, type: string, handler: EventListener, options?: boolean | AddEventListenerOptions) => {
+      element.addEventListener(type, handler, options);
+      resourceTracker.current.eventListeners.add({ element, type, handler });
+    },
+    [],
+  );
+
   useEffect(() => {
     setIsPiPSupportedState(isPiPSupported());
   }, []);
@@ -41,15 +106,15 @@ const ActivityTimerWithPiP: React.FC<ActivityTimerProps> = () => {
   useEffect(() => {
     const updateTimers = () => {
       const currentTimerData = ActivityTimerManager.getCurrentTimerData();
+      const allTimersData = ActivityTimerManager.getAllTimersData();
 
       if (currentTimerData) {
         setTimerData(currentTimerData);
       }
 
-      const allTimersData = ActivityTimerManager.getAllTimersData();
-      if (allTimersData && allTimersData.length > 0) {
-        // Sort timers: exceeded first, then warning, then normal
-        const sortedTimers = [...allTimersData].sort((a, b) => {
+      const allTimersDataFiltered = allTimersData || [];
+      if (allTimersDataFiltered.length > 0) {
+        const sortedTimers = [...allTimersDataFiltered].sort((a, b) => {
           const statusPriority = { exceeded: 0, warning: 1, normal: 2 };
           return statusPriority[a.status] - statusPriority[b.status];
         });
@@ -63,136 +128,231 @@ const ActivityTimerWithPiP: React.FC<ActivityTimerProps> = () => {
     };
 
     updateTimers();
-
     const interval = setInterval(updateTimers, 1000);
 
     ActivityTimerManager.persistTimerData();
 
-    return () => clearInterval(interval);
+    return () => {
+      clearInterval(interval);
+    };
   }, []);
 
-  const activeTimersCount = useMemo(() => allTimers.length, [allTimers]);
-  const hasMultipleTimers = useMemo(() => activeTimersCount > 1, [activeTimersCount]);
+  const getOptimalCanvasDimensions = useCallback(() => {
+    const baseWidth = 480;
+    const baseHeight = 360;
+    const aspectRatio = baseWidth / baseHeight;
 
-  const renderTimerToCanvas = useCallback(() => {
-    if (!pipCanvasRef.current || !timerData) return;
+    const viewportWidth = window.innerWidth;
+    const targetWidth = Math.min(baseWidth, Math.max(200, viewportWidth * 0.2));
+    const targetHeight = targetWidth / aspectRatio;
+    const finalWidth = Math.max(320, Math.min(600, targetWidth));
+    const finalHeight = Math.max(240, Math.min(450, targetHeight));
+
+    return { width: Math.round(finalWidth), height: Math.round(finalHeight) };
+  }, []);
+
+  const validateCanvasContext = useCallback(() => {
+    if (!pipCanvasRef.current) return null;
 
     const canvas = pipCanvasRef.current;
-    const ctx = canvas.getContext('2d');
+    const optimalDimensions = getOptimalCanvasDimensions();
+
+    const dimensionsChanged =
+      optimalDimensions.width !== canvasDimensions.current.width ||
+      optimalDimensions.height !== canvasDimensions.current.height;
+
+    if (dimensionsChanged || !canvasContext.current || canvas.width !== canvasDimensions.current.width) {
+      canvasContext.current = null;
+      canvasContextVersion.current += 1;
+    }
+    if (!canvasContext.current) {
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return null;
+
+      canvasDimensions.current = optimalDimensions;
+      canvas.width = optimalDimensions.width;
+      canvas.height = optimalDimensions.height;
+
+      canvasContext.current = ctx;
+    }
+
+    return canvasContext.current;
+  }, [getOptimalCanvasDimensions]);
+
+  const renderTimerToCanvas = useCallback(() => {
+    if (!pipCanvasRef.current || !timerData) {
+      return;
+    }
+
+    const ctx = validateCanvasContext();
     if (!ctx) return;
 
-    canvas.width = 480;
-    canvas.height = 360;
+    const { width, height } = canvasDimensions.current;
 
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    if (renderingState.current.isRendering) {
+      renderingState.current.needsUpdate = true;
+      return;
+    }
 
-    const statusColor = getStatusColor(timerData.status);
-    ctx.shadowColor = statusColor;
-    ctx.shadowBlur = 15;
-    ctx.beginPath();
-    ctx.arc(canvas.width - 30, 30, 10, 0, 2 * Math.PI);
-    ctx.fillStyle = statusColor;
-    ctx.fill();
-    ctx.shadowBlur = 0;
+    renderingState.current.isRendering = true;
+    renderingState.current.needsUpdate = false;
 
-    ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 32px "Segoe UI", -apple-system, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.shadowColor = 'rgba(0, 0, 0, 0.3)';
-    ctx.shadowBlur = 2;
-    ctx.shadowOffsetY = 1;
+    try {
+      ctx.clearRect(0, 0, width, height);
+      ctx.fillStyle = '#1a1a1a';
+      ctx.fillRect(0, 0, width, height);
 
-    // Truncate activity name if too long
-    const maxNameWidth = canvas.width - 80;
-    const displayName = truncateText(timerData.activityName, maxNameWidth, ctx);
-    ctx.fillText(displayName, canvas.width / 2, 90);
+      const statusColor = getStatusColor(timerData.status);
 
-    ctx.font = 'bold 46px "Roboto Mono", "Consolas", monospace';
-    ctx.fillStyle = statusColor;
-    // ctx.shadowColor = statusColor;
-    ctx.shadowBlur = 8;
-    ctx.fillText(timerData.formattedTime, canvas.width / 2, 150);
-    ctx.shadowBlur = 0;
+      ctx.save();
+      ctx.shadowColor = statusColor;
+      ctx.shadowBlur = 15;
+      ctx.fillStyle = statusColor;
+      ctx.beginPath();
+      ctx.arc(width - 30, 30, 10, 0, 2 * Math.PI);
+      ctx.fill();
+      ctx.restore();
 
-    // Draw other timers
-    if (allTimers.length > 1) {
-      ctx.font = '24px "Segoe UI", sans-serif';
-      ctx.textAlign = 'left';
+      ctx.save();
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 22px "Segoe UI", -apple-system, sans-serif';
+      ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
+      ctx.shadowColor = 'rgba(0, 0, 0, 0.3)';
+      ctx.shadowBlur = 2;
+      ctx.shadowOffsetY = 1;
 
-      let yOffset = 245;
-      const maxTimers = Math.min(3, allTimers.length - 1);
-      let displayedCount = 0;
+      const maxNameWidth = width - 80;
+      const displayName = truncateText(timerData.activityName, maxNameWidth, ctx);
+      ctx.fillText(displayName, width / 2, 70);
+      ctx.restore();
 
-      for (let i = 0; i < allTimers.length && displayedCount < maxTimers; i++) {
-        const timer = allTimers[i];
-        if (timer.activityName === timerData.activityName) continue;
+      ctx.save();
+      ctx.font = 'bold 32px "Roboto Mono", "Consolas", monospace';
+      ctx.fillStyle = statusColor;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.shadowColor = statusColor;
+      ctx.shadowBlur = 6;
+      ctx.fillText(timerData.formattedTime, width / 2, 110);
+      ctx.restore();
+      if (allTimers.length > 1) {
+        let yOffset = 170;
+        const maxTimers = Math.min(5, allTimers.length - 1);
+        let displayedCount = 0;
 
-        // background for timer item
-        const itemGradient = ctx.createLinearGradient(30, yOffset - 15, canvas.width - 30, yOffset + 15);
+        const itemGradient = ctx.createLinearGradient(30, 0, width - 30, 25);
         itemGradient.addColorStop(0, 'rgba(255, 255, 255, 0.05)');
         itemGradient.addColorStop(1, 'rgba(255, 255, 255, 0.02)');
-        ctx.fillStyle = itemGradient;
-        ctx.roundRect(30, yOffset - 15, canvas.width - 60, 30, 6);
-        ctx.fill();
 
-        // Status indicator with glow
-        ctx.shadowColor = getStatusColor(timer.status);
-        ctx.shadowBlur = 6;
-        ctx.beginPath();
-        ctx.arc(50, yOffset, 4, 0, 2 * Math.PI);
-        ctx.fillStyle = getStatusColor(timer.status);
-        ctx.fill();
-        ctx.shadowBlur = 0;
+        for (let i = 0; i < allTimers.length && displayedCount < maxTimers; i++) {
+          const timer = allTimers[i];
+          if (timer.activityName === timerData.activityName) continue;
 
-        // Timer name
-        ctx.fillStyle = '#e1e3ea';
-        const maxItemNameWidth = 240;
-        const itemDisplayName = truncateText(timer.activityName, maxItemNameWidth, ctx);
-        ctx.fillText(itemDisplayName, 65, yOffset);
+          ctx.save();
+          ctx.fillStyle = itemGradient;
+          if (ctx.roundRect) {
+            ctx.roundRect(30, yOffset - 12, width - 60, 25, 4);
+            ctx.fill();
+          } else {
+            ctx.fillRect(30, yOffset - 12, width - 60, 25);
+          }
 
-        // Timer value with background
-        ctx.textAlign = 'right';
-        ctx.font = 'bold 24px "Roboto Mono", monospace';
-        ctx.fillStyle = getStatusColor(timer.status);
-        ctx.fillText(timer.formattedTime, canvas.width - 40, yOffset);
-        ctx.textAlign = 'left';
-        ctx.font = '24px "Segoe UI", sans-serif';
+          const timerStatusColor = getStatusColor(timer.status);
+          ctx.shadowColor = timerStatusColor;
+          ctx.shadowBlur = 4;
+          ctx.fillStyle = timerStatusColor;
+          ctx.beginPath();
+          ctx.arc(45, yOffset, 3, 0, 2 * Math.PI);
+          ctx.fill();
 
-        yOffset += 35;
-        displayedCount += 1;
+          ctx.shadowBlur = 0;
+          ctx.shadowColor = 'transparent';
+
+          ctx.fillStyle = '#e1e3ea';
+          ctx.font = '16px "Segoe UI", sans-serif';
+          ctx.textAlign = 'left';
+          ctx.textBaseline = 'middle';
+          const maxItemNameWidth = 200;
+          const itemDisplayName = truncateText(timer.activityName, maxItemNameWidth, ctx);
+          ctx.fillText(itemDisplayName, 55, yOffset);
+
+          ctx.fillStyle = timerStatusColor;
+          ctx.font = 'bold 16px "Roboto Mono", monospace';
+          ctx.textAlign = 'right';
+          ctx.fillText(timer.formattedTime, width - 35, yOffset);
+
+          ctx.restore();
+
+          yOffset += 28;
+          displayedCount += 1;
+        }
+
+        if (allTimers.length - 1 > maxTimers) {
+          ctx.save();
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+          ctx.font = 'italic 14px "Segoe UI", sans-serif';
+          ctx.fillText(`+${allTimers.length - 1 - maxTimers} more`, width / 2, yOffset);
+          ctx.restore();
+        }
       }
+    } catch (error) {
+      console.error('Canvas rendering error:', error);
+    } finally {
+      renderingState.current.isRendering = false;
 
-      // Show remaining count if any
-      if (allTimers.length - 1 > maxTimers) {
-        ctx.textAlign = 'center';
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
-        ctx.font = 'italic 24px "Segoe UI", sans-serif';
-        ctx.fillText(`+${allTimers.length - 1 - maxTimers} more`, canvas.width / 2, yOffset);
+      if (renderingState.current.needsUpdate) {
+        requestAnimationFrame(() => renderTimerToCanvas());
       }
     }
-  }, [timerData, allTimers]);
+  }, [validateCanvasContext, timerData, allTimers]);
 
-  // Animation loop for PiP
   const startPiPAnimation = useCallback(() => {
-    const animate = () => {
-      if (isPiPActive) {
+    let shouldRender = true;
+    let lastFrameTime = 0;
+    const targetFPS = 30;
+    const frameInterval = 1000 / targetFPS;
+
+    const animate = (currentTime: number) => {
+      if (!isPiPActive || !shouldRender) return;
+
+      if (currentTime - lastFrameTime >= frameInterval) {
         renderTimerToCanvas();
-        animationFrameRef.current = requestAnimationFrame(animate);
+        lastFrameTime = currentTime;
       }
+
+      const frameId = requestAnimationFrame(animate);
+      animationFrameRef.current = frameId;
+      resourceTracker.current.animationFrames.add(frameId);
     };
-    animate();
+
+    const initialFrameId = requestAnimationFrame(animate);
+    animationFrameRef.current = initialFrameId;
+    resourceTracker.current.animationFrames.add(initialFrameId);
+
+    return () => {
+      shouldRender = false;
+    };
   }, [isPiPActive, renderTimerToCanvas]);
 
   const stopPiPAnimation = useCallback(() => {
+    resourceTracker.current.intervals.forEach((intervalId) => {
+      clearTimeout(intervalId);
+    });
+    resourceTracker.current.intervals.clear();
+
     if (animationFrameRef.current) {
       cancelAnimationFrame(animationFrameRef.current);
       animationFrameRef.current = null;
     }
+    resourceTracker.current.animationFrames.forEach((frameId) => {
+      cancelAnimationFrame(frameId);
+    });
+    resourceTracker.current.animationFrames.clear();
   }, []);
 
-  // Start/stop animation based on PiP state
   useEffect(() => {
     if (isPiPActive) {
       startPiPAnimation();
@@ -205,57 +365,134 @@ const ActivityTimerWithPiP: React.FC<ActivityTimerProps> = () => {
     };
   }, [isPiPActive, startPiPAnimation, stopPiPAnimation]);
 
+  const handlePiPError = useCallback((error: Error) => {
+    console.error('PiP Error Boundary triggered:', error);
+
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((track) => track.stop());
+      resourceTracker.current.mediaStreams.delete(streamRef.current);
+      streamRef.current = null;
+    }
+
+    setIsPiPActive(false);
+  }, []);
+
   const enterPiP = useCallback(async () => {
-    if (!isPiPSupportedState || !pipVideoRef.current || !pipCanvasRef.current) return;
+    if (!isPiPSupportedState || !pipVideoRef.current || !pipCanvasRef.current) {
+      console.warn('PiP not supported or required elements not available');
+      return;
+    }
+
+    if (isPiPActive || isPiPLoading || document.pictureInPictureElement) {
+      console.warn('PiP already active or in progress');
+      return;
+    }
+
+    setIsPiPLoading(true);
 
     try {
-      // Initial render
+      const video = pipVideoRef.current;
+      const canvas = pipCanvasRef.current;
+
+      const ctx = validateCanvasContext();
+      if (!ctx) {
+        throw new Error('Canvas context validation failed');
+      }
+
+      if (!timerData) {
+        throw new Error('No timer data available for PiP');
+      }
+
       renderTimerToCanvas();
 
-      // Create stream from canvas
-      const stream = pipCanvasRef.current.captureStream(30);
+      const stream = canvas.captureStream(30); // 30 FPS for smooth updates
+      if (!stream || stream.getTracks().length === 0) {
+        throw new Error('Failed to capture canvas stream');
+      }
+
+      video.srcObject = stream;
+      video.muted = true;
+      video.playsInline = true;
+      video.width = canvasDimensions.current.width;
+      video.height = canvasDimensions.current.height;
+
       streamRef.current = stream;
-      pipVideoRef.current.srcObject = stream;
+      resourceTracker.current.mediaStreams.add(stream);
 
-      // Play the video (required for PiP)
-      await pipVideoRef.current.play();
+      await video.play();
+      await video.requestPictureInPicture();
 
-      // Enter Picture-in-Picture mode
-      await pipVideoRef.current.requestPictureInPicture();
       setIsPiPActive(true);
     } catch (error) {
       console.error('Failed to enter Picture-in-Picture mode:', error);
-    }
-  }, [isPiPSupportedState, renderTimerToCanvas]);
 
-  const exitPiP = useCallback(async () => {
-    try {
-      if (document.pictureInPictureElement) {
-        await document.exitPictureInPicture();
-      }
       if (streamRef.current) {
         streamRef.current.getTracks().forEach((track) => track.stop());
+        resourceTracker.current.mediaStreams.delete(streamRef.current);
         streamRef.current = null;
       }
+
+      if (pipVideoRef.current) {
+        pipVideoRef.current.srcObject = null;
+      }
+
+      setIsPiPActive(false);
+      throw new Error(`PiP initialization failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      setIsPiPLoading(false);
+    }
+  }, [isPiPSupportedState, validateCanvasContext, renderTimerToCanvas]);
+
+  const exitPiP = useCallback(async () => {
+    if (isPiPLoading) {
+      console.warn('PiP operation already in progress');
+      return;
+    }
+
+    setIsPiPLoading(true);
+
+    try {
+      const exitPromise = document.pictureInPictureElement ? document.exitPictureInPicture() : Promise.resolve();
+
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((track) => track.stop());
+        resourceTracker.current.mediaStreams.delete(streamRef.current);
+        streamRef.current = null;
+      }
+
+      await exitPromise;
       setIsPiPActive(false);
     } catch (error) {
       console.error('Failed to exit Picture-in-Picture mode:', error);
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((track) => track.stop());
+        resourceTracker.current.mediaStreams.delete(streamRef.current);
+        streamRef.current = null;
+      }
+      setIsPiPActive(false);
+    } finally {
+      setIsPiPLoading(false);
     }
-  }, []);
+  }, [isPiPLoading]);
 
   const togglePiP = useCallback(
     (e: React.MouseEvent) => {
       e.stopPropagation();
+
+      if (isPiPLoading) {
+        console.warn('PiP operation in progress, please wait');
+        return;
+      }
+
       if (isPiPActive) {
         exitPiP();
       } else {
         enterPiP();
       }
     },
-    [isPiPActive, enterPiP, exitPiP],
+    [isPiPActive, isPiPLoading, enterPiP, exitPiP],
   );
 
-  // Listen for PiP events
   useEffect(() => {
     const video = pipVideoRef.current;
     if (!video) {
@@ -269,18 +506,19 @@ const ActivityTimerWithPiP: React.FC<ActivityTimerProps> = () => {
       setIsPiPActive(false);
       if (streamRef.current) {
         streamRef.current.getTracks().forEach((track) => track.stop());
+        resourceTracker.current.mediaStreams.delete(streamRef.current);
         streamRef.current = null;
       }
     };
 
-    video.addEventListener('enterpictureinpicture', handleEnterPiP);
-    video.addEventListener('leavepictureinpicture', handleLeavePiP);
+    addTrackedEventListener(video, 'enterpictureinpicture', handleEnterPiP);
+    addTrackedEventListener(video, 'leavepictureinpicture', handleLeavePiP);
 
     return () => {
       video.removeEventListener('enterpictureinpicture', handleEnterPiP);
       video.removeEventListener('leavepictureinpicture', handleLeavePiP);
     };
-  }, []);
+  }, [addTrackedEventListener]);
 
   const handleTimerClick = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
@@ -288,7 +526,7 @@ const ActivityTimerWithPiP: React.FC<ActivityTimerProps> = () => {
   }, []);
 
   useEffect(() => {
-    const handleGlobalClick = (event: MouseEvent) => {
+    const handleGlobalClick = (event: Event) => {
       if (!showAllTimers) return;
 
       const target = event.target as Element;
@@ -300,14 +538,15 @@ const ActivityTimerWithPiP: React.FC<ActivityTimerProps> = () => {
       }
     };
 
-    // Use a small delay to ensure the popup is rendered before adding the listener
     if (showAllTimers) {
       const timeoutId = setTimeout(() => {
-        document.addEventListener('click', handleGlobalClick, true);
+        addTrackedEventListener(document, 'click', handleGlobalClick, true);
       }, 10);
+      resourceTracker.current.intervals.add(timeoutId);
 
       return () => {
         clearTimeout(timeoutId);
+        resourceTracker.current.intervals.delete(timeoutId);
         document.removeEventListener('click', handleGlobalClick, true);
       };
     }
@@ -315,23 +554,26 @@ const ActivityTimerWithPiP: React.FC<ActivityTimerProps> = () => {
     return () => {
       document.removeEventListener('click', handleGlobalClick, true);
     };
-  }, [showAllTimers]);
+  }, [showAllTimers, addTrackedEventListener]);
 
   useEffect(() => {
     return () => {
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach((track) => track.stop());
-      }
+      cleanupAllResources();
       stopPiPAnimation();
+      canvasContext.current = null;
     };
-  }, [stopPiPAnimation]);
+  }, [cleanupAllResources, stopPiPAnimation]);
 
   if (!timerData) {
     return null;
   }
 
   return (
-    <>
+    <ErrorBoundary
+      fallback={
+        <div style={{ padding: '8px', fontSize: '12px', color: '#666' }}>⚠️ Activity timer temporarily unavailable</div>
+      }
+    >
       <TimerContainer
         status={timerData.status}
         ref={containerRef}
@@ -360,15 +602,24 @@ const ActivityTimerWithPiP: React.FC<ActivityTimerProps> = () => {
           <PopupHeader>
             <span>Activity Timers</span>
             {isPiPSupportedState && (
-              <PiPButton
-                isPiPActive={isPiPActive}
-                onClick={togglePiP}
-                title={isPiPActive ? 'Exit Picture-in-Picture' : 'Enter Picture-in-Picture'}
-                aria-pressed={isPiPActive}
-              >
-                {isPiPActive ? <ExitPiPIcon /> : <PiPIcon />}
-                {isPiPActive ? 'Exit PiP' : 'PiP Mode'}
-              </PiPButton>
+              <PiPErrorBoundary onPiPError={handlePiPError}>
+                <PiPButton
+                  isPiPActive={isPiPActive}
+                  onClick={togglePiP}
+                  title={
+                    isPiPLoading
+                      ? 'PiP Loading...'
+                      : isPiPActive
+                      ? 'Exit Picture-in-Picture'
+                      : 'Enter Picture-in-Picture'
+                  }
+                  aria-pressed={isPiPActive}
+                  disabled={isPiPLoading}
+                >
+                  {isPiPActive ? <ExitPiPIcon /> : <PiPIcon />}
+                  {isPiPLoading ? 'Loading...' : isPiPActive ? 'Exit PiP' : 'PiP Mode'}
+                </PiPButton>
+              </PiPErrorBoundary>
             )}
           </PopupHeader>
           <TimerList>
@@ -392,9 +643,12 @@ const ActivityTimerWithPiP: React.FC<ActivityTimerProps> = () => {
         </AllTimersPopup>
       )}
 
-      <PiPVideo ref={pipVideoRef} muted playsInline aria-hidden="true" />
-      <canvas ref={pipCanvasRef} style={{ display: 'none' }} width="480" height="360" aria-hidden="true" />
-    </>
+      {/* PiP-related elements wrapped in error boundary */}
+      <PiPErrorBoundary onPiPError={handlePiPError}>
+        <PiPVideo ref={pipVideoRef} muted playsInline aria-hidden="true" />
+        <canvas ref={pipCanvasRef} style={{ display: 'none' }} width="480" height="360" aria-hidden="true" />
+      </PiPErrorBoundary>
+    </ErrorBoundary>
   );
 };
 

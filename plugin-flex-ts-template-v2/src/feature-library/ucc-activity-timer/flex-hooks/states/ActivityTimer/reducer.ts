@@ -157,6 +157,40 @@ const activityTimerSlice = createSlice({
         state.currentTimer = timer;
       }
     },
+
+    removeTimer(state, action: PayloadAction<string>) {
+      const activityName = action.payload;
+
+      // If this is the current timer, find the next highest priority timer
+      if (state.currentTimer && state.currentTimer.activityName === activityName) {
+        const remainingTimers = Object.values(state.timers).filter((timer) => timer.activityName !== activityName);
+
+        if (remainingTimers.length > 0) {
+          // Sort by priority: exceeded > warning > normal, then by elapsed time
+          const sortedTimers = remainingTimers.sort((a, b) => {
+            const statusPriority = { exceeded: 0, warning: 1, normal: 2 };
+            const aPriority = statusPriority[a.status];
+            const bPriority = statusPriority[b.status];
+
+            if (aPriority !== bPriority) {
+              return aPriority - bPriority;
+            }
+
+            // If same status, sort by elapsed time (higher first)
+            const aTime = a.timerType === 'per-day' ? a.accumulatedTime + a.elapsedTime : a.elapsedTime;
+            const bTime = b.timerType === 'per-day' ? b.accumulatedTime + b.elapsedTime : b.elapsedTime;
+            return bTime - aTime;
+          });
+
+          state.currentTimer = sortedTimers[0];
+        } else {
+          state.currentTimer = null;
+        }
+      }
+
+      // Remove the timer from the timers object
+      delete state.timers[activityName];
+    },
   },
 });
 
@@ -169,6 +203,7 @@ export const {
   updatePersistedTimers,
   restoreTimers,
   continueTimer,
+  removeTimer,
 } = activityTimerSlice.actions;
 
 export const reducerHook = () => ({ activityTimer: activityTimerSlice.reducer });

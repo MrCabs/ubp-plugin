@@ -20,6 +20,11 @@ export const eventHook = (_flex: typeof Flex, _manager: Flex.Manager, task: Flex
 
     const { timers } = activityTimerState;
 
+    if (timers['On Hold'] && (timers['On Hold'].taskSid === task.sid || timers['On Hold'].taskSid === null)) {
+      logger.info('Removing On Hold timer due to task completion');
+      ActivityTimerManager.removeActivityTimer('On Hold');
+      ActivityTimerManager.persistTimerData();
+    }
     Object.values(timers).forEach((timerObj: any) => {
       const timer = timerObj as {
         activityName: string;
@@ -27,16 +32,11 @@ export const eventHook = (_flex: typeof Flex, _manager: Flex.Manager, task: Flex
         taskSid: string | null;
       };
 
-      if (timer.timerType === 'per-call' && timer.taskSid === task.sid) {
+      if (timer.timerType === 'per-call' && timer.taskSid === task.sid && timer.activityName !== 'On Hold') {
         logger.info(`Resetting per-call timer for ${timer.activityName} due to task completion`);
         ActivityTimerManager.resetActivityTimer(timer.activityName);
       }
     });
-
-    if (timers['On Hold'] && (timers['On Hold'].taskSid === task.sid || timers['On Hold'].taskSid === null)) {
-      logger.info('Resetting On Hold timer due to task completion');
-      ActivityTimerManager.resetActivityTimer('On Hold');
-    }
 
     ActivityTimerManager.persistTimerData();
 
@@ -52,7 +52,8 @@ export const eventHook = (_flex: typeof Flex, _manager: Flex.Manager, task: Flex
             !key.startsWith('__') &&
             timerData &&
             timerData.timerType === 'per-call' &&
-            (key === 'On Hold' || (timerData as any).taskSid === task.sid)
+            (timerData as any).taskSid === task.sid &&
+            key !== 'On Hold'
           ) {
             timerData.accumulatedTime = 0;
             timerData.elapsedTime = 0;

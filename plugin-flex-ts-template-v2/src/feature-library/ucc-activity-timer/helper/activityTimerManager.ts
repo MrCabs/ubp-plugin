@@ -6,8 +6,9 @@ import {
   resetTimer,
   updateTimerStatus,
   setTaskForTimer,
-  updatePersistedTimers,
   continueTimer,
+  restoreTimers,
+  removeTimer,
 } from '../flex-hooks/states/ActivityTimer/reducer';
 import { ActivityTimer, PersistedTimerData, ActivityTimerState } from '../types/ActivityTimer';
 import {
@@ -17,7 +18,35 @@ import {
   LOCAL_STORAGE_KEY,
   REDUX_NAMESPACE,
 } from '../config';
+import { isTimerVisibleForWorker, isValidActivityName, isValidTaskSid, sanitizeActivityName } from './utils';
 import logger from '../../../utils/logger';
+
+// Type guards for safe casting
+function isActivityTimer(obj: any): obj is ActivityTimer {
+  return (
+    obj &&
+    typeof obj === 'object' &&
+    typeof obj.activityName === 'string' &&
+    typeof obj.timerType === 'string' &&
+    (obj.timerType === 'per-call' || obj.timerType === 'per-day') &&
+    typeof obj.elapsedTime === 'number' &&
+    typeof obj.warningThreshold === 'number' &&
+    typeof obj.exceededThreshold === 'number' &&
+    typeof obj.status === 'string' &&
+    (obj.status === 'normal' || obj.status === 'warning' || obj.status === 'exceeded') &&
+    typeof obj.isRunning === 'boolean' &&
+    typeof obj.accumulatedTime === 'number'
+  );
+}
+
+function isActivityTimerState(obj: any): obj is ActivityTimerState {
+  return (
+    obj &&
+    typeof obj === 'object' &&
+    typeof obj.timers === 'object' &&
+    (obj.currentTimer === null || isActivityTimer(obj.currentTimer))
+  );
+}
 
 interface TimerDisplayData {
   activityName: string;
@@ -27,6 +56,14 @@ interface TimerDisplayData {
 
 class ActivityTimerManager {
   private updateInterval: NodeJS.Timeout | null = null;
+
+  private isUpdating: boolean = false;
+
+  private isPersisting: boolean = false;
+
+  private pendingOperations: Array<() => void> = [];
+
+  private operationLock: boolean = false;
 
   // eslint-disable-next-line no-restricted-syntax
   constructor() {
@@ -39,15 +76,33 @@ class ActivityTimerManager {
     logger.info('ActivityTimerManager initialized');
   }
 
+  // Public methods start here
   initializeTimerForActivity(activityName: string, taskSid?: string): ActivityTimer | null {
-    const timerConfig = getTimerConfigForActivity(activityName);
+    // Input validation and sanitization
+    if (!isValidActivityName(activityName)) {
+      logger.warn('Invalid activity name provided to timer initialization', { activityName });
+      return null;
+    }
+
+    if (taskSid && !isValidTaskSid(taskSid)) {
+      logger.warn('Invalid task SID provided to timer initialization', { taskSid });
+      return null;
+    }
+
+    const sanitizedActivityName = sanitizeActivityName(activityName);
+    const timerConfig = getTimerConfigForActivity(sanitizedActivityName);
 
     if (!timerConfig) {
       return null;
     }
 
+    if (!isTimerVisibleForWorker(sanitizedActivityName)) {
+      logger.info(`Timer for ${sanitizedActivityName} not visible for current worker's business unit`);
+      return null;
+    }
+
     const timer: ActivityTimer = {
-      activityName,
+      activityName: sanitizedActivityName,
       timerType: timerConfig.timerType,
       elapsedTime: 0,
       warningThreshold: timerConfig.warningThreshold || getDefaultWarningThreshold(),
@@ -89,6 +144,11 @@ class ActivityTimerManager {
 
     const timerConfig = getTimerConfigForActivity(activityName);
     if (!timerConfig) {
+      return null;
+    }
+
+    if (!isTimerVisibleForWorker(activityName)) {
+      logger.info(`Timer for ${activityName} not visible for current worker's business unit`);
       return null;
     }
 
@@ -178,6 +238,35 @@ class ActivityTimerManager {
     }
   }
 
+  removeActivityTimer(activityName: string) {
+    logger.info(`Removing activity timer for: ${activityName}`);
+
+    const activityTimerState = this.getActivityTimerState();
+    const timer = activityTimerState?.timers?.[activityName];
+
+    if (!timer) {
+      logger.info(`No timer found for activity: ${activityName}`);
+      return;
+    }
+
+    // Remove from Redux store
+    Manager.getInstance().store.dispatch(removeTimer(activityName));
+
+    // Remove from localStorage for per-day timers
+    if (timer.timerType === 'per-day') {
+      const workerSid = Manager.getInstance().workerClient?.sid;
+      if (workerSid) {
+        const persistedData = this.getPersistedData();
+        if (persistedData && persistedData[activityName]) {
+          const updatedData = { ...persistedData };
+          delete updatedData[activityName];
+          localStorage.setItem(LOCAL_STORAGE_KEY(workerSid), JSON.stringify(updatedData));
+          logger.info(`Removed persisted data for: ${activityName}`);
+        }
+      }
+    }
+  }
+
   setTaskForActivityTimer(activityName: string, taskSid: string) {
     logger.info(`Setting task for activity timer: ${activityName}, taskSid: ${taskSid}`);
 
@@ -203,35 +292,58 @@ class ActivityTimerManager {
   }
 
   updateRunningTimers() {
-    const activityTimerState = this.getActivityTimerState();
-
-    if (!activityTimerState || !activityTimerState.timers) {
+    if (this.isUpdating || this.isPersisting) {
+      logger.debug('Skipping timer update - operation in progress');
       return;
     }
 
-    const { timers } = activityTimerState;
+    this.withLock(async () => {
+      this.isUpdating = true;
 
-    Object.values(timers).forEach((timerObj: any) => {
-      const timer = timerObj as ActivityTimer;
+      const activityTimerState = this.getActivityTimerState();
 
-      const elapsedTime = this.calculateElapsedTime(timer);
-
-      let status: 'normal' | 'warning' | 'exceeded' = 'normal';
-
-      if (elapsedTime >= timer.exceededThreshold) {
-        status = 'exceeded';
-      } else if (elapsedTime >= timer.warningThreshold) {
-        status = 'warning';
+      if (!activityTimerState || !activityTimerState.timers) {
+        return;
       }
 
-      if (status !== timer.status) {
-        Manager.getInstance().store.dispatch(
-          updateTimerStatus({
-            activityName: timer.activityName,
-            status,
-          }),
-        );
+      const { timers } = activityTimerState;
+      const statusUpdates: Array<() => void> = [];
+
+      Object.values(timers).forEach((timerObj: any) => {
+        if (!isActivityTimer(timerObj)) {
+          logger.warn('Invalid timer object in state', { timerObj });
+          return;
+        }
+
+        const timer = timerObj;
+        const elapsedTime = this.calculateElapsedTime(timer);
+
+        let status: 'normal' | 'warning' | 'exceeded' = 'normal';
+
+        if (elapsedTime >= timer.exceededThreshold) {
+          status = 'exceeded';
+        } else if (elapsedTime >= timer.warningThreshold) {
+          status = 'warning';
+        }
+
+        if (status !== timer.status) {
+          statusUpdates.push(() => {
+            Manager.getInstance().store.dispatch(
+              updateTimerStatus({
+                activityName: timer.activityName,
+                status,
+              }),
+            );
+          });
+        }
+      });
+
+      // Batch all status updates
+      if (statusUpdates.length > 0) {
+        this.batchStateUpdates(statusUpdates);
       }
+    }).finally(() => {
+      this.isUpdating = false;
     });
   }
 
@@ -243,85 +355,169 @@ class ActivityTimerManager {
     const workerSid = Manager.getInstance().workerClient?.sid;
 
     if (!workerSid) {
+      logger.warn('Cannot get persisted data: no worker SID available');
       return null;
     }
 
     const key = LOCAL_STORAGE_KEY(workerSid);
-    const storedData = localStorage.getItem(key);
-
-    if (!storedData) {
-      return null;
-    }
 
     try {
-      return JSON.parse(storedData) as PersistedTimerData;
+      const storedData = localStorage.getItem(key);
+
+      if (!storedData) {
+        return null;
+      }
+
+      const parsedData = JSON.parse(storedData);
+
+      if (!this.isValidPersistedData(parsedData)) {
+        logger.warn('Invalid persisted timer data structure, clearing corrupted data');
+        localStorage.removeItem(key);
+        return null;
+      }
+
+      return parsedData as PersistedTimerData;
     } catch (e) {
-      logger.error('Failed to parse persisted timer data', e as object);
+      if (e instanceof SyntaxError) {
+        logger.error('Failed to parse persisted timer data: invalid JSON', { error: e.message });
+      } else if (e instanceof DOMException && e.name === 'SecurityError') {
+        logger.error('LocalStorage access denied: security error', { error: e.message });
+      } else {
+        logger.error('Unexpected error reading persisted timer data', e as object);
+      }
+
+      // Attempt to clear corrupted data
+      try {
+        localStorage.removeItem(key);
+      } catch (clearError) {
+        logger.error('Failed to clear corrupted timer data', clearError as object);
+      }
+
       return null;
     }
   }
 
-  persistTimerData() {
-    const workerSid = Manager.getInstance().workerClient?.sid;
-
-    if (!workerSid) {
-      return;
+  persistTimerData(): boolean {
+    if (this.isPersisting) {
+      logger.debug('Skipping persist - already in progress');
+      return false;
     }
 
-    const activityTimerState = this.getActivityTimerState();
+    this.isPersisting = true;
 
-    if (!activityTimerState || !activityTimerState.timers) {
-      return;
-    }
+    try {
+      const workerSid = Manager.getInstance().workerClient?.sid;
 
-    const { timers } = activityTimerState;
-
-    const persistedData: PersistedTimerData = {};
-
-    Object.values(timers).forEach((timerObj: any) => {
-      const timer = timerObj as ActivityTimer;
-
-      let totalElapsedTime = timer.elapsedTime;
-
-      if (timer.isRunning && timer.timerStart) {
-        totalElapsedTime += (Date.now() - timer.timerStart) / 1000;
+      if (!workerSid) {
+        logger.warn('Cannot persist timer data: no worker SID available');
+        return false;
       }
 
-      if (timer.timerType === 'per-day') {
-        persistedData[timer.activityName] = {
-          accumulatedTime: timer.accumulatedTime + totalElapsedTime,
-          elapsedTime: 0,
-          status: timer.status,
-          lastUpdated: Date.now(),
-          timerType: timer.timerType,
-          warningThreshold: timer.warningThreshold,
-          exceededThreshold: timer.exceededThreshold,
-        };
-      } else {
-        persistedData[timer.activityName] = {
+      // Check storage availability and quota
+      if (!this.checkStorageQuota()) {
+        logger.error('LocalStorage quota exceeded, cannot persist timer data');
+        return false;
+      }
+
+      const activityTimerState = this.getActivityTimerState();
+
+      if (!activityTimerState || !activityTimerState.timers) {
+        logger.warn('No timer state available to persist');
+        return false;
+      }
+
+      const { timers } = activityTimerState;
+      const persistedData: PersistedTimerData = {};
+
+      // Validate and sanitize timer data before persisting
+      Object.values(timers).forEach((timerObj: any) => {
+        if (!isActivityTimer(timerObj)) {
+          logger.warn('Skipping invalid timer data', { timerObj });
+          return;
+        }
+
+        const timer = timerObj;
+
+        let totalElapsedTime = timer.elapsedTime || 0;
+
+        if (timer.isRunning && timer.timerStart) {
+          const elapsedSinceStart = (Date.now() - timer.timerStart) / 1000;
+          // Sanity check: elapsed time shouldn't be negative or unreasonably large
+          if (elapsedSinceStart >= 0 && elapsedSinceStart < 86400) {
+            // Less than 24 hours
+            totalElapsedTime += elapsedSinceStart;
+          }
+        }
+
+        // Sanitize numeric values
+        const accumulatedTime = Math.max(0, timer.accumulatedTime || 0);
+        const sanitizedElapsedTime = Math.max(0, totalElapsedTime);
+
+        if (timer.timerType === 'per-day') {
+          persistedData[timer.activityName] = {
+            accumulatedTime: accumulatedTime + sanitizedElapsedTime,
+            elapsedTime: 0,
+            status: timer.status || 'normal',
+            lastUpdated: Date.now(),
+            timerType: timer.timerType,
+            warningThreshold: timer.warningThreshold || 0,
+            exceededThreshold: timer.exceededThreshold || 0,
+          };
+        } else {
+          persistedData[timer.activityName] = {
+            accumulatedTime: 0,
+            elapsedTime: sanitizedElapsedTime,
+            status: timer.status || 'normal',
+            lastUpdated: Date.now(),
+            timerType: timer.timerType,
+            warningThreshold: timer.warningThreshold || 0,
+            exceededThreshold: timer.exceededThreshold || 0,
+          };
+        }
+      });
+
+      if (activityTimerState.currentTimer && activityTimerState.currentTimer.activityName) {
+        persistedData.__currentTimer = {
           accumulatedTime: 0,
-          elapsedTime: totalElapsedTime,
-          status: timer.status,
           lastUpdated: Date.now(),
-          timerType: timer.timerType,
-          warningThreshold: timer.warningThreshold,
-          exceededThreshold: timer.exceededThreshold,
+          activityName: activityTimerState.currentTimer.activityName,
         };
       }
-    });
 
-    if (activityTimerState.currentTimer) {
-      persistedData.__currentTimer = {
-        accumulatedTime: 0,
-        lastUpdated: Date.now(),
-        activityName: activityTimerState.currentTimer.activityName,
-      };
+      const key = LOCAL_STORAGE_KEY(workerSid);
+      const dataString = JSON.stringify(persistedData);
+
+      // Check if data string is too large (most browsers have ~5-10MB limit)
+      if (dataString.length > 5000000) {
+        // 5MB limit
+        logger.error('Timer data too large to persist', { size: dataString.length });
+        return false;
+      }
+
+      localStorage.setItem(key, dataString);
+      logger.info('Successfully persisted timer data to localStorage', {
+        timersCount: Object.keys(persistedData).length,
+        dataSize: dataString.length,
+      });
+      return true;
+    } catch (e) {
+      if (e instanceof DOMException) {
+        if (e.name === 'QuotaExceededError') {
+          logger.error('LocalStorage quota exceeded while persisting timer data');
+          // Attempt cleanup of old data
+          this.cleanupOldStorageData();
+        } else if (e.name === 'SecurityError') {
+          logger.error('LocalStorage access denied: security error');
+        } else {
+          logger.error('LocalStorage operation failed', { name: e.name, message: e.message });
+        }
+      } else {
+        logger.error('Unexpected error persisting timer data', e as object);
+      }
+      return false;
+    } finally {
+      this.isPersisting = false;
     }
-
-    const key = LOCAL_STORAGE_KEY(workerSid);
-    localStorage.setItem(key, JSON.stringify(persistedData));
-
-    logger.info('Persisted timer data to localStorage');
   }
 
   loadPersistedTimers() {
@@ -342,7 +538,7 @@ class ActivityTimerManager {
 
         const timerConfig = getTimerConfigForActivity(activityName);
 
-        if (timerConfig) {
+        if (timerConfig && isTimerVisibleForWorker(activityName)) {
           const timer: ActivityTimer = {
             activityName,
             timerType: data.timerType || timerConfig.timerType,
@@ -371,14 +567,13 @@ class ActivityTimerManager {
         }
       });
 
-      const accumulatedTimesMap: Record<string, number> = {};
-      Object.entries(timersToRestore).forEach(([activityName, timer]) => {
-        if (timer.timerType === 'per-day') {
-          accumulatedTimesMap[activityName] = timer.accumulatedTime;
-        }
-      });
-
-      Manager.getInstance().store.dispatch(updatePersistedTimers(accumulatedTimesMap));
+      // Restore timers using the proper action that handles both timers and current timer
+      Manager.getInstance().store.dispatch(
+        restoreTimers({
+          timers: timersToRestore,
+          currentTimerName,
+        }),
+      );
 
       logger.info('Loaded persisted timer data from localStorage');
     }
@@ -438,6 +633,10 @@ class ActivityTimerManager {
       return null;
     }
 
+    if (!isTimerVisibleForWorker(currentTimer.activityName)) {
+      return null;
+    }
+
     return this.getTimerData(timer);
   }
 
@@ -451,10 +650,15 @@ class ActivityTimerManager {
     const { timers } = activityTimerState;
 
     return Object.values(timers)
-      .map((timerObj: any) => {
-        const timer = timerObj as ActivityTimer;
-        return this.getTimerData(timer);
+      .filter((timerObj: any): timerObj is ActivityTimer => {
+        if (!isActivityTimer(timerObj)) {
+          logger.warn('Invalid timer object in getAllTimersData', { timerObj });
+          return false;
+        }
+        return true;
       })
+      .map((timer) => this.getTimerData(timer))
+      .filter((timerData) => isTimerVisibleForWorker(timerData.activityName))
       .sort((a, b) => {
         const statusOrder = { exceeded: 0, warning: 1, normal: 2 };
         return statusOrder[a.status] - statusOrder[b.status];
@@ -491,8 +695,12 @@ class ActivityTimerManager {
     const { timers } = activityTimerState;
 
     Object.values(timers).forEach((timerObj: any) => {
-      const timer = timerObj as ActivityTimer;
+      if (!isActivityTimer(timerObj)) {
+        logger.warn('Invalid timer object in clearPerDayTimers', { timerObj });
+        return;
+      }
 
+      const timer = timerObj;
       if (timer.timerType === 'per-day') {
         logger.info(`Resetting per-day timer for ${timer.activityName}`);
         Manager.getInstance().store.dispatch(resetTimer(timer.activityName));
@@ -506,10 +714,132 @@ class ActivityTimerManager {
     }
   }
 
+  // Synchronization helpers
+  private async withLock<T>(operation: () => T | Promise<T>): Promise<T | null> {
+    if (this.operationLock) {
+      // Queue the operation for later execution
+      return new Promise<T>((resolve, reject) => {
+        this.pendingOperations.push(async () => {
+          try {
+            const result = await operation();
+            resolve(result);
+          } catch (error) {
+            reject(error);
+          }
+        });
+      });
+    }
+
+    this.operationLock = true;
+    try {
+      return await operation();
+    } catch (error) {
+      logger.error('Error in synchronized operation', error as object);
+      throw error;
+    } finally {
+      this.operationLock = false;
+      // Process pending operations
+      if (this.pendingOperations.length > 0) {
+        const nextOperation = this.pendingOperations.shift();
+        if (nextOperation) {
+          setTimeout(nextOperation, 0); // Execute asynchronously
+        }
+      }
+    }
+  }
+
+  private batchStateUpdates(updates: Array<() => void>): void {
+    // Use React's unstable_batchedUpdates equivalent for Redux
+    // This ensures all state updates are batched together
+    updates.forEach((update) => update());
+  }
+
+  private isValidPersistedData(data: any): data is PersistedTimerData {
+    if (!data || typeof data !== 'object') return false;
+
+    // Check if all entries are valid timer data
+    for (const [key, value] of Object.entries(data)) {
+      if (key.startsWith('__')) continue; // Skip metadata entries
+
+      if (!value || typeof value !== 'object') return false;
+
+      const timerData = value as any;
+      if (
+        typeof timerData.accumulatedTime !== 'number' ||
+        typeof timerData.lastUpdated !== 'number' ||
+        timerData.lastUpdated < 0 ||
+        timerData.accumulatedTime < 0
+      ) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  private checkStorageQuota(): boolean {
+    try {
+      const testKey = '__storage_test__';
+      const testData = 'x'.repeat(1024); // 1KB test
+      localStorage.setItem(testKey, testData);
+      localStorage.removeItem(testKey);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  private shouldRemoveTimerData(parsed: any, cutoffTime: number): boolean {
+    for (const [timerKey, timerData] of Object.entries(parsed)) {
+      if (timerKey.startsWith('__')) continue;
+      const lastUpdated = (timerData as any)?.lastUpdated;
+      if (lastUpdated && lastUpdated < cutoffTime) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private processStorageItem(key: string, cutoffTime: number): void {
+    try {
+      const data = localStorage.getItem(key);
+      if (!data) return;
+
+      const parsed = JSON.parse(data);
+      if (this.shouldRemoveTimerData(parsed, cutoffTime)) {
+        localStorage.removeItem(key);
+        logger.info('Cleaned up old timer data', { key });
+      }
+    } catch (error) {
+      // If we can't parse an item, remove it as it's likely corrupted
+      localStorage.removeItem(key);
+      logger.info('Removed corrupted timer data', { key });
+    }
+  }
+
+  private cleanupOldStorageData(): void {
+    try {
+      // Remove items older than 7 days
+      const cutoffTime = Date.now() - 7 * 24 * 60 * 60 * 1000;
+
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (!key || !key.includes('ucc_activity_timer_state_')) continue;
+
+        this.processStorageItem(key, cutoffTime);
+      }
+    } catch (error) {
+      logger.error('Error during storage cleanup', error as object);
+    }
+  }
+
   private getActivityTimerState(): ActivityTimerState | null {
     const state: any = Manager.getInstance().store.getState();
     if (state && state[REDUX_NAMESPACE] && state[REDUX_NAMESPACE].activityTimer) {
-      return state[REDUX_NAMESPACE].activityTimer as ActivityTimerState;
+      const timerState = state[REDUX_NAMESPACE].activityTimer;
+      if (isActivityTimerState(timerState)) {
+        return timerState;
+      }
+      logger.warn('Invalid activity timer state structure', { timerState });
     }
     return null;
   }

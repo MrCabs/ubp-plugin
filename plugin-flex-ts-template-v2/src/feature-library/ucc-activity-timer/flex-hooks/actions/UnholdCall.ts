@@ -12,8 +12,7 @@ export const actionHook = function beforeUnholdCall(flex: typeof Flex, _manager:
     const { task } = payload;
     logger.info(`[ucc-activity-timer] Unhold call action for task: ${task.sid}`);
 
-    ActivityTimerManager.pauseActivityTimer(STATUS_ON_HOLD);
-
-    ActivityTimerManager.setTaskForActivityTimer(STATUS_ON_HOLD, task.sid);
+    // Reset the hold timer when unhoding (should start from zero next time)
+    ActivityTimerManager.resetActivityTimer(STATUS_ON_HOLD);
   });
 };

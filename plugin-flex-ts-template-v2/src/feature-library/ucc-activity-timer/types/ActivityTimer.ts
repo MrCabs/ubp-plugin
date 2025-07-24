@@ -42,6 +42,7 @@ export interface TimerConfig {
   timerType: 'per-call' | 'per-day';
   warningThreshold: number;
   exceededThreshold: number;
+  visibleForBusinessUnits?: string[];
 }
 
 export interface TimerDataType {
