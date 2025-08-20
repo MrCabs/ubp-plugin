@@ -31,8 +31,8 @@ export const eventHook = (_flex: typeof Flex, _manager: Flex.Manager, task: Flex
         ActivityTimerManager.setTaskForActivityTimer('On Hold', task.sid);
       }
     } else if (holdTimer && holdTimer.isRunning && holdTimer.taskSid === task.sid) {
-      logger.info(`Pausing On Hold timer for task ${task.sid}`);
-      ActivityTimerManager.pauseActivityTimer('On Hold');
+      logger.info(`Resetting On Hold timer for task ${task.sid} (call no longer on hold test)`);
+      ActivityTimerManager.resetActivityTimer('On Hold');
     }
 
     ActivityTimerManager.persistTimerData();
