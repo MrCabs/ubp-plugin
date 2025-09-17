@@ -5,6 +5,7 @@ import { v4 as uuidv4 } from 'uuid';
 
 import { getExternalDirectory, isVoiceXWTEnabled } from '../config';
 import { DirectoryEntry } from '../types/DirectoryEntry';
+import ScheduleChecker from '../helpers/ScheduleChecker';
 import AppState from '../../../types/manager/AppState';
 import { reduxNamespace } from '../../../utils/state';
 import DirectoryTab, { TransferClickPayload } from './DirectoryTab';
@@ -15,23 +16,35 @@ export interface OwnProps {
 
 const ExternalDirectoryTab = (props: OwnProps) => {
   const [directory, setDirectory] = useState([] as Array<DirectoryEntry>);
+  const [isLoading, setIsLoading] = useState(true);
 
   const workerAttrs = useFlexSelector((state: AppState) => state.flex.worker.attributes);
   const myContactList = useSelector((state: AppState) => state[reduxNamespace]?.contacts?.directory);
   const sharedContactList = useSelector((state: AppState) => state[reduxNamespace]?.contacts?.sharedDirectory);
 
-  // Map the configurable entries to a DirectoryEntry array
-  const generateDirectoryEntries = (): Array<DirectoryEntry> => {
-    return getExternalDirectory().map(
-      (entry) =>
-        ({
+  // Map the configurable entries to a DirectoryEntry array with schedule checking
+  const generateDirectoryEntries = async (): Promise<Array<DirectoryEntry>> => {
+    const externalDirectory = getExternalDirectory();
+
+    return Promise.all(
+      externalDirectory.map(async (entry) => {
+        // Check schedule if enabled
+        let isScheduleOpen = true;
+        if (entry.check_schedule?.enabled) {
+          isScheduleOpen = await ScheduleChecker.checkSchedule(entry);
+        }
+
+        return {
           ...entry,
-          warm_transfer_enabled: entry.warm_transfer_enabled && isVoiceXWTEnabled(),
+          // Only enable transfers if schedule is open (or no schedule check required)
+          cold_transfer_enabled: entry.cold_transfer_enabled && isScheduleOpen,
+          warm_transfer_enabled: entry.warm_transfer_enabled && isVoiceXWTEnabled() && isScheduleOpen,
           address: entry.number,
           tooltip: entry.number,
           type: 'number',
           key: uuidv4(),
-        } as DirectoryEntry),
+        } as DirectoryEntry;
+      }),
     );
   };
 
@@ -56,14 +69,27 @@ const ExternalDirectoryTab = (props: OwnProps) => {
   };
 
   useEffect(() => {
-    // Combine the configurable directory entries with contacts from the contacts feature
-    // Then sort the complete directory by name
-    setDirectory(
-      generateDirectoryEntries()
-        .concat(generateContactsEntries(false))
-        .concat(generateContactsEntries(true))
-        .sort((a: DirectoryEntry, b: DirectoryEntry) => (a.label.toLowerCase() > b.label.toLowerCase() ? 1 : -1)),
-    );
+    const loadDirectory = async () => {
+      setIsLoading(true);
+      try {
+        // Get directory entries with schedule checks
+        const externalEntries = await generateDirectoryEntries();
+
+        // Combine and sort all entries
+        const allEntries = externalEntries
+          .concat(generateContactsEntries(false))
+          .concat(generateContactsEntries(true))
+          .sort((a: DirectoryEntry, b: DirectoryEntry) => (a.label.toLowerCase() > b.label.toLowerCase() ? 1 : -1));
+
+        setDirectory(allEntries);
+      } catch (error) {
+        console.error('Error loading directory with schedule checks:', error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    loadDirectory();
   }, [myContactList, sharedContactList]);
 
   const onTransferEntryClick = (entry: DirectoryEntry, transferOptions: TransferClickPayload) => {
@@ -99,7 +125,34 @@ const ExternalDirectoryTab = (props: OwnProps) => {
     }
   };
 
-  return <DirectoryTab entries={directory} isLoading={false} onTransferClick={onTransferEntryClick} />;
+  // Add refresh function to reload the directory and recheck schedules
+  const refreshDirectory = async () => {
+    setIsLoading(true);
+
+    try {
+      const externalEntries = await generateDirectoryEntries();
+
+      const allEntries = externalEntries
+        .concat(generateContactsEntries(false))
+        .concat(generateContactsEntries(true))
+        .sort((a: DirectoryEntry, b: DirectoryEntry) => (a.label.toLowerCase() > b.label.toLowerCase() ? 1 : -1));
+
+      setDirectory(allEntries);
+    } catch (error) {
+      console.error('Error refreshing directory:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  return (
+    <DirectoryTab
+      entries={directory}
+      isLoading={isLoading}
+      onTransferClick={onTransferEntryClick}
+      onReloadClick={refreshDirectory}
+    />
+  );
 };
 
 export default withTaskContext(ExternalDirectoryTab);
