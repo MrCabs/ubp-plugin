@@ -28,7 +28,6 @@ export const componentHook = function addMicStatusColumn(flex: typeof Flex, mana
       key={MIC_STATUS_COLUMN_KEY}
       header="Mic Status"
       content={(item: any) => <MicStatusColumn worker={item.worker} />}
-      sortingKey="mic"
       sortingFn={() => {return 1}}
     />,
     { sortOrder: 99 },
