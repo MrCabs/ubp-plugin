@@ -1,4 +1,6 @@
 export default interface MicrophoneMonitoringConfig {
   enabled: boolean;
-  business_units: string[];
+  configuration: {
+    business_units: string[];
+  }
 }

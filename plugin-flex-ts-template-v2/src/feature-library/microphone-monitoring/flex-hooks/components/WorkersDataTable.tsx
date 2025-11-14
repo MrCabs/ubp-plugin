@@ -13,24 +13,40 @@ export const componentHook = function addMicStatusColumn(flex: typeof Flex, mana
   if (!isFeatureEnabled()) {
     return;
   }
-  
+
   const business_units = getBusinessUnit()
 
   //flex.WorkersDataTable.Content.remove(MIC_STATUS_COLUMN_KEY);
 
   const workerAttributes = (manager.workerClient?.attributes ?? {}) as { business_unit: string };
-  if (!business_units.includes(workerAttributes.business_unit)) {
+  if (workerAttributes.business_unit && !business_units.includes(workerAttributes.business_unit)) {
     return;
-  }
+  } else if ((!workerAttributes.business_unit || workerAttributes.business_unit === "" || workerAttributes.business_unit === undefined)
+    || (workerAttributes.business_unit && business_units.includes(workerAttributes.business_unit))) {
+    flex.WorkersDataTable.Content.add(
+      <Flex.ColumnDefinition
+        key={MIC_STATUS_COLUMN_KEY}
+        header="Mic Status"
+        content={(item: any) => <MicStatusColumn worker={item.worker} />}
+        sortingFn={(rowA, rowB) => {
+          const micOrder: Record<string, number> = { OFF: 0, ON: 1 };
+          const getRank = (worker: any) => {
+            const value = worker?.attributes?.mic;
+            return micOrder[String(value).toUpperCase()] ?? 2;
+          };
 
-  flex.WorkersDataTable.Content.add(
-    <Flex.ColumnDefinition
-      key={MIC_STATUS_COLUMN_KEY}
-      header="Mic Status"
-      content={(item: any) => <MicStatusColumn worker={item.worker} />}
-      sortingFn={() => {return 1}}
-    />,
-    { sortOrder: 99 },
-  );
+          const rankA = getRank(rowA.worker);
+          const rankB = getRank(rowB.worker);
+
+          if (rankA === rankB) {
+            return 0;
+          }
+
+          return rankA > rankB ? 1 : -1;
+        }}
+      />,
+      { sortOrder: 99 },
+    );
+  }
 };
 
