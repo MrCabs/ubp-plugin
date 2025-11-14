@@ -29,35 +29,42 @@ const getStatusConfig = (micStatus?: string) => {
 
 const MicStatusColumn: React.FC<MicStatusColumnProps> = ({ worker }) => {
   const attributes = (worker?.attributes ?? {}) as MicEnabledWorkerAttributes;
-
-  const business_units = getBusinessUnit()
-
-  if (!business_units.includes(attributes.business_unit)) {
-    return null;
-  }
-
   const micStatus = attributes.mic;
   const micLastChanged = attributes.micLastChanged;
 
-  if (!micStatus || !micLastChanged) {
+  const business_units = getBusinessUnit()
+
+  if (attributes.business_unit && !business_units.includes(attributes.business_unit)) {
+    return null;
+  } else if ((attributes.business_unit && business_units.includes(attributes.business_unit)) ||
+    (!attributes.business_unit || attributes.business_unit === "" || attributes.business_unit === undefined)) {
+
+    if (!micStatus || !micLastChanged) {
+      return (
+        <Box padding="space20">
+          <Badge as="span" variant="neutral">
+            No Data
+          </Badge>
+        </Box>
+      );
+    }
+
+    const statusConfig = getStatusConfig(micStatus);
+
     return (
-      <Box padding="space20">
-        <Badge as="span" variant="neutral">
-          No Data
+      <Box padding="space10" minWidth="180px">
+        <Badge as="span" variant={statusConfig.variant}>
+          {statusConfig.text}
         </Badge>
       </Box>
     );
+  } else {
+    return (<Box padding="space10" minWidth="180px">
+              <Badge as="span" variant="neutral">
+                No Data
+              </Badge>
+            </Box>)
   }
-
-  const statusConfig = getStatusConfig(micStatus);
-
-  return (
-    <Box padding="space10" minWidth="180px">
-      <Badge as="span" variant={statusConfig.variant}>
-        {statusConfig.text}
-      </Badge>
-    </Box>
-  );
 };
 
 export default MicStatusColumn;
