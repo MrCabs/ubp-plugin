@@ -1,9 +1,9 @@
 import React from 'react';
 import { Box } from '@twilio-paste/core/box';
 import { Badge } from '@twilio-paste/core/badge';
-import { getBusinessUnit } from '../config';
-
 import type { WorkerAttributes } from '@twilio/flex-ui';
+
+import { getBusinessUnit } from '../config';
 
 interface MicEnabledWorkerAttributes extends WorkerAttributes {
   mic?: string;
@@ -63,15 +63,14 @@ const MicStatusColumn: React.FC<MicStatusColumnProps> = ({ worker }) => {
         </Badge>
       </Box>
     );
-  } else {
-    return (
-      <Box padding="space10" minWidth="180px">
-        <Badge as="span" variant="neutral">
-          No Data
-        </Badge>
-      </Box>
-    );
   }
+  return (
+    <Box padding="space10" minWidth="180px">
+      <Badge as="span" variant="neutral">
+        No Data
+      </Badge>
+    </Box>
+  );
 };
 
 export default MicStatusColumn;

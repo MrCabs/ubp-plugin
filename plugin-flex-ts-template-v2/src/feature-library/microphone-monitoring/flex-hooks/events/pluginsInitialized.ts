@@ -49,7 +49,7 @@ export const eventHook = function initializeMicrophoneMonitoring(_flex: typeof F
       return;
     }
 
-    microphoneMonitorService = new MicrophoneMonitorService(manager);
+    microphoneMonitorService = MicrophoneMonitorService.create(manager);
     microphoneMonitorService.initialize();
     window.__microphoneMonitorService = microphoneMonitorService;
     registerCleanupListener();
