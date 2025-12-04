@@ -14,15 +14,19 @@ export const componentHook = function addMicStatusColumn(flex: typeof Flex, mana
     return;
   }
 
-  const business_units = getBusinessUnit()
+  const business_units = getBusinessUnit();
 
   //flex.WorkersDataTable.Content.remove(MIC_STATUS_COLUMN_KEY);
 
   const workerAttributes = (manager.workerClient?.attributes ?? {}) as { business_unit: string };
   if (workerAttributes.business_unit && !business_units.includes(workerAttributes.business_unit)) {
     return;
-  } else if ((!workerAttributes.business_unit || workerAttributes.business_unit === "" || workerAttributes.business_unit === undefined)
-    || (workerAttributes.business_unit && business_units.includes(workerAttributes.business_unit))) {
+  } else if (
+    !workerAttributes.business_unit ||
+    workerAttributes.business_unit === '' ||
+    workerAttributes.business_unit === undefined ||
+    (workerAttributes.business_unit && business_units.includes(workerAttributes.business_unit))
+  ) {
     flex.WorkersDataTable.Content.add(
       <Flex.ColumnDefinition
         key={MIC_STATUS_COLUMN_KEY}
@@ -49,4 +53,3 @@ export const componentHook = function addMicStatusColumn(flex: typeof Flex, mana
     );
   }
 };
-

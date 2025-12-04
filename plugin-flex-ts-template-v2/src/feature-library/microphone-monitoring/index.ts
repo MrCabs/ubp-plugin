@@ -7,5 +7,3 @@ export const register = (): FeatureDefinition => {
   if (!isFeatureEnabled()) return {};
   return { name: 'microphone-monitoring', hooks: typeof hooks === 'undefined' ? [] : hooks };
 };
-
-

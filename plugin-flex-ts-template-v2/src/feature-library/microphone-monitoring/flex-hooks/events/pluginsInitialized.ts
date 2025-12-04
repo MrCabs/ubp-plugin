@@ -39,7 +39,9 @@ export const eventHook = function initializeMicrophoneMonitoring(_flex: typeof F
 
     if (!manager.workerClient) {
       if (attempt >= MAX_INITIALIZATION_ATTEMPTS) {
-        console.warn('[microphone-monitoring] Worker client unavailable. Skipping microphone monitoring initialization.');
+        console.warn(
+          '[microphone-monitoring] Worker client unavailable. Skipping microphone monitoring initialization.',
+        );
         return;
       }
 
@@ -55,4 +57,3 @@ export const eventHook = function initializeMicrophoneMonitoring(_flex: typeof F
 
   initializeService();
 };
-
