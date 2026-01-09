@@ -88,6 +88,8 @@ class MicrophoneMonitorService {
 
     private sessionCheckInterval: IntervalId | null = null;
 
+    private deviceChangeHandler: (() => void) | null = null;
+
     constructor(manager: FlexManager) {
         this.manager = manager;
         this.browserInfo = this.detectBrowser();
@@ -357,6 +359,24 @@ class MicrophoneMonitorService {
         });
     }
 
+    private async determineMicStatus(permissionState: MicPermissionState | null): Promise<MicStatus> {
+        // If permission is not granted, status is Off
+        if (permissionState !== 'granted') {
+            return 'Off';
+        }
+
+        // Even if permission is granted, check if devices are available and enabled
+        const deviceCheck = await this.checkMicrophoneDevices();
+        
+        // If no devices exist or all devices are disabled, status is Off
+        if (!deviceCheck.hasDevices || !deviceCheck.hasEnabledDevices) {
+            console.log('Permission granted but no available/enabled microphone devices - setting status to OFF');
+            return 'Off';
+        }
+
+        return 'On';
+    }
+
     private setupMicrophonePermissionHandler(): void {
         if (!navigator.permissions || !navigator.permissions.query) {
             console.warn('Permissions API not supported in this browser. Using fallback method for microphone detection.');
@@ -372,7 +392,7 @@ class MicrophoneMonitorService {
 
         navigator.permissions
             .query(permissionDescriptor)
-            .then((permissionStatus) => {
+            .then(async (permissionStatus) => {
                 this.micState = permissionStatus.state;
                 this.lastStateChangeTime = Date.now();
 
@@ -383,13 +403,13 @@ class MicrophoneMonitorService {
                 sessionData.lastStateChange = this.lastStateChangeTime;
                 sessionStorage.setItem(CONFIG.SESSION_KEY, JSON.stringify(sessionData));
 
-                const initialMicStatus: MicStatus = this.micState === 'granted' ? 'On' : 'Off';
+                const initialMicStatus: MicStatus = await this.determineMicStatus(this.micState);
 
                 this.updateWorkerMicAttribute(initialMicStatus).catch((error: unknown) => {
                     console.error('Failed to set initial worker mic attribute:', error);
                 });
 
-                permissionStatus.onchange = () => {
+                permissionStatus.onchange = async () => {
                     const now = Date.now();
                     const latestSessionData = JSON.parse(sessionStorage.getItem(CONFIG.SESSION_KEY) || '{}') as SessionData;
 
@@ -423,7 +443,7 @@ class MicrophoneMonitorService {
                     latestSessionData.lastStateChange = now;
                     sessionStorage.setItem(CONFIG.SESSION_KEY, JSON.stringify(latestSessionData));
 
-                    const micStatus: MicStatus = this.micState === 'granted' ? 'On' : 'Off';
+                    const micStatus: MicStatus = await this.determineMicStatus(this.micState);
                     this.updateWorkerMicAttribute(micStatus).catch((error: unknown) => {
                         console.error('Failed to update worker mic attribute on permission change:', error);
                     });
@@ -454,7 +474,7 @@ class MicrophoneMonitorService {
         this.micState = 'prompt';
         this.lastStateChangeTime = Date.now();
 
-        this.detectMicrophoneAccess().then((hasAccess) => {
+        this.detectMicrophoneAccess().then(async (hasAccess) => {
             this.micState = hasAccess ? 'granted' : 'denied';
             this.lastStateChangeTime = Date.now();
 
@@ -465,17 +485,17 @@ class MicrophoneMonitorService {
             sessionData.lastStateChange = this.lastStateChangeTime;
             sessionStorage.setItem(CONFIG.SESSION_KEY, JSON.stringify(sessionData));
 
-            const micStatus: MicStatus = this.micState === 'granted' ? 'On' : 'Off';
+            const micStatus: MicStatus = await this.determineMicStatus(this.micState);
             this.updateWorkerMicAttribute(micStatus).catch((error: unknown) => {
                 console.error('Failed to set initial worker mic attribute:', error);
             });
 
-            console.log(`Fallback microphone detection (${browserName}): ${this.micState}`);
+            console.log(`Fallback microphone detection (${browserName}): ${this.micState}, status: ${micStatus}`);
         });
 
         const checkInterval = this.browserInfo.isFirefox ? 3000 : 5000;
         this.fallbackCheckInterval = setInterval(() => {
-            this.detectMicrophoneAccess().then((hasAccess) => {
+            this.detectMicrophoneAccess().then(async (hasAccess) => {
                 const newState: MicPermissionState = hasAccess ? 'granted' : 'denied';
                 if (newState !== this.micState) {
                     const now = Date.now();
@@ -504,20 +524,62 @@ class MicrophoneMonitorService {
                     sessionData.lastStateChange = now;
                     sessionStorage.setItem(CONFIG.SESSION_KEY, JSON.stringify(sessionData));
 
-                    const micStatus: MicStatus = this.micState === 'granted' ? 'On' : 'Off';
+                    const micStatus: MicStatus = await this.determineMicStatus(this.micState);
                     this.updateWorkerMicAttribute(micStatus).catch((error: unknown) => {
                         console.error('Failed to update worker mic attribute on permission change:', error);
                     });
 
                     this.updateGlobalState(this.lastStateChangeTime);
-                    console.log(`Microphone permission changed to: ${this.micState} (${browserName} Fallback)`);
+                    console.log(`Microphone permission changed to: ${this.micState}, status: ${micStatus} (${browserName} Fallback)`);
                 }
             });
         }, checkInterval);
     }
 
+    private async checkMicrophoneDevices(): Promise<{ hasDevices: boolean; hasEnabledDevices: boolean; deviceCount: number }> {
+        try {
+            if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
+                console.warn('enumerateDevices not supported');
+                return { hasDevices: false, hasEnabledDevices: false, deviceCount: 0 };
+            }
+
+            const devices = await navigator.mediaDevices.enumerateDevices();
+            const audioInputDevices = devices.filter((device) => device.kind === 'audioinput');
+            
+            // Devices with labels are accessible (permission granted and device enabled)
+            // Devices without labels may exist but are not accessible (permission denied or device disabled)
+            const enabledDevices = audioInputDevices.filter((device) => device.label && device.label.trim() !== '');
+            
+            const result = {
+                hasDevices: audioInputDevices.length > 0,
+                hasEnabledDevices: enabledDevices.length > 0,
+                deviceCount: audioInputDevices.length,
+            };
+
+            console.log(`Microphone devices check: ${result.deviceCount} total, ${enabledDevices.length} enabled`);
+            if (enabledDevices.length > 0) {
+                console.log('Enabled devices:', enabledDevices.map((d) => d.label || d.deviceId).join(', '));
+            }
+
+            return result;
+        } catch (error: unknown) {
+            console.error('Error checking microphone devices:', error);
+            return { hasDevices: false, hasEnabledDevices: false, deviceCount: 0 };
+        }
+    }
+
     private async detectMicrophoneAccess(): Promise<boolean> {
-        return new Promise((resolve) => {
+        return new Promise(async (resolve) => {
+            // First check if devices are available and enabled
+            const deviceCheck = await this.checkMicrophoneDevices();
+            
+            // If no devices exist or all devices are disabled, return false
+            if (!deviceCheck.hasDevices || !deviceCheck.hasEnabledDevices) {
+                console.log('No available microphone devices or all devices are disabled');
+                resolve(false);
+                return;
+            }
+
             if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
                 console.warn('getUserMedia not supported');
                 resolve(false);
@@ -536,6 +598,63 @@ class MicrophoneMonitorService {
                     resolve(false);
                 });
         });
+    }
+
+    private setupDeviceChangeHandler(): void {
+        if (!navigator.mediaDevices || !navigator.mediaDevices.addEventListener) {
+            console.warn('MediaDevices API not fully supported - device change detection unavailable');
+            return;
+        }
+
+        this.deviceChangeHandler = async () => {
+            console.log('Microphone device change detected - rechecking device availability');
+            
+            // Recheck device availability
+            const deviceCheck = await this.checkMicrophoneDevices();
+            
+            // Determine new status based on current permission state and device availability
+            const newStatus = await this.determineMicStatus(this.micState);
+            
+            // Get current status from worker attributes to compare
+            const workerClient = this.manager.workerClient;
+            const currentAttributes = (workerClient?.attributes ?? {}) as WorkerAttributeUpdate;
+            const currentMicStatus = currentAttributes.mic as MicStatus | undefined;
+            
+            // Only update if status has changed
+            if (currentMicStatus !== newStatus) {
+                console.log(`Device change: Microphone status changed from ${currentMicStatus || 'unknown'} to ${newStatus}`);
+                
+                const now = Date.now();
+                const sessionData = JSON.parse(sessionStorage.getItem(CONFIG.SESSION_KEY) || '{}') as SessionData;
+                
+                // Save current duration if session is active
+                if (this.shouldCountTime() && this.micState && sessionData.lastStateChange) {
+                    const elapsed = now - sessionData.lastStateChange;
+                    if (elapsed > 0 && elapsed < CONFIG.MAX_DAILY_TIME) {
+                        this.durations[this.micState] += elapsed;
+                        localStorage.setItem(STORAGE_KEYS.GRANTED_TIME, this.durations.granted.toString());
+                        localStorage.setItem(STORAGE_KEYS.DENIED_TIME, this.durations.denied.toString());
+                        console.log(`Saved ${(elapsed / 1000).toFixed(2)}s for ${this.micState} before device change`);
+                    }
+                }
+                
+                // Update state and worker attribute
+                sessionData.lastStateChange = now;
+                sessionStorage.setItem(CONFIG.SESSION_KEY, JSON.stringify(sessionData));
+                this.lastStateChangeTime = now;
+                
+                this.updateWorkerMicAttribute(newStatus).catch((error: unknown) => {
+                    console.error('Failed to update worker mic attribute on device change:', error);
+                });
+                
+                this.updateGlobalState(now);
+            } else {
+                console.log(`Device change: Microphone status unchanged (${newStatus})`);
+            }
+        };
+
+        navigator.mediaDevices.addEventListener('devicechange', this.deviceChangeHandler);
+        console.log('Device change handler registered');
     }
 
     private setupWorkerActivityHandler(): void {
@@ -642,6 +761,7 @@ class MicrophoneMonitorService {
         this.setupConnectionEventHandlers();
         this.setupMicrophonePermissionHandler();
         this.setupWorkerActivityHandler();
+        this.setupDeviceChangeHandler();
 
         this.sessionCheckInterval = setInterval(() => {
             if (this.shouldCountTime()) {
@@ -660,6 +780,11 @@ class MicrophoneMonitorService {
         if (this.sessionCheckInterval) {
             clearInterval(this.sessionCheckInterval);
             this.sessionCheckInterval = null;
+        }
+        if (this.deviceChangeHandler && navigator.mediaDevices && navigator.mediaDevices.removeEventListener) {
+            navigator.mediaDevices.removeEventListener('devicechange', this.deviceChangeHandler);
+            this.deviceChangeHandler = null;
+            console.log('Device change handler removed');
         }
     }
 }
