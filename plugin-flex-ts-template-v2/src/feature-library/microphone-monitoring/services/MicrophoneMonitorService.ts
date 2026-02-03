@@ -96,6 +96,10 @@ class MicrophoneMonitorService {
     this.browserInfo = this.detectBrowser();
   }
 
+  public static create(manager: FlexManager): MicrophoneMonitorService {
+    return new MicrophoneMonitorService(manager);
+  }
+
   public initialize(): void {
     this.checkDailyReset();
 
