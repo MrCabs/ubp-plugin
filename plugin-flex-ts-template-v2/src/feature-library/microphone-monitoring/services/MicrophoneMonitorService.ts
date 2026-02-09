@@ -313,7 +313,7 @@ class MicrophoneMonitorService {
       (k) => !MicrophoneMonitorService.MIC_ATTRIBUTE_KEYS.has(k),
     );
 
-    // If we only have mic keys or no attributes, we may be racing with attribute load — defer to avoid overwriting
+    // If we only have mic keys or no attributes, we may be racing with attribute load - defer to avoid overwriting
     if (!hasNonMicAttributes && retryCount < MicrophoneMonitorService.MAX_ATTRIBUTE_LOAD_RETRIES) {
       const delay = MicrophoneMonitorService.ATTRIBUTE_LOAD_RETRY_DELAY_MS * (retryCount + 1);
       await new Promise((resolve) => setTimeout(resolve, delay));
@@ -528,12 +528,12 @@ class MicrophoneMonitorService {
     const browserName = this.browserInfo.isFirefox
       ? 'Firefox'
       : this.browserInfo.isChrome
-        ? 'Chrome'
-        : this.browserInfo.isSafari
-          ? 'Safari'
-          : this.browserInfo.isEdge
-            ? 'Edge'
-            : 'Unknown';
+      ? 'Chrome'
+      : this.browserInfo.isSafari
+      ? 'Safari'
+      : this.browserInfo.isEdge
+      ? 'Edge'
+      : 'Unknown';
 
     console.log(`Setting up fallback microphone permission handler for ${browserName} compatibility`);
 
@@ -747,7 +747,8 @@ class MicrophoneMonitorService {
       const currentActivity = workerClient.activity?.name ?? 'Unknown';
 
       console.log(
-        `Activity changing from ${wasAvailable ? 'Available' : 'Not Available'} to ${isNowAvailable ? 'Available' : 'Not Available'
+        `Activity changing from ${wasAvailable ? 'Available' : 'Not Available'} to ${
+          isNowAvailable ? 'Available' : 'Not Available'
         } (${currentActivity})`,
       );
 
@@ -793,7 +794,8 @@ class MicrophoneMonitorService {
           console.log(`Worker became unavailable (${currentActivity}) - time already saved above`);
         } else if (!wasAvailable && isNowAvailable) {
           console.log(
-            `Worker became available (${currentActivity}) - timer ${this.shouldCountTime() ? 'resumed' : 'ready to resume'
+            `Worker became available (${currentActivity}) - timer ${
+              this.shouldCountTime() ? 'resumed' : 'ready to resume'
             } for ${this.micState}`,
           );
         }
