@@ -295,14 +295,30 @@ class MicrophoneMonitorService {
     console.log(`Session started: ${sessionId} (online: ${sessionData.isOnline})`);
   }
 
-  private async updateWorkerMicAttribute(micStatus: MicStatus): Promise<WorkerAttributes> {
+  private static readonly MIC_ATTRIBUTE_KEYS = new Set(['mic', 'micTimestamp', 'micLastChanged']);
+
+  private static readonly ATTRIBUTE_LOAD_RETRY_DELAY_MS = 400;
+
+  private static readonly MAX_ATTRIBUTE_LOAD_RETRIES = 8;
+
+  private async updateWorkerMicAttribute(micStatus: MicStatus, retryCount = 0): Promise<WorkerAttributes> {
     const workerClient = this.manager.workerClient;
     if (!workerClient) {
       console.warn('Worker client not available');
       return Promise.reject(new Error('Worker client not available'));
     }
 
-    const currentAttributes = (workerClient.attributes ?? {}) as WorkerAttributeUpdate;
+    const currentAttributes = { ...(workerClient.attributes ?? {}) } as WorkerAttributeUpdate;
+    const hasNonMicAttributes = Object.keys(currentAttributes).some(
+      (k) => !MicrophoneMonitorService.MIC_ATTRIBUTE_KEYS.has(k),
+    );
+
+    // If we only have mic keys or no attributes, we may be racing with attribute load — defer to avoid overwriting
+    if (!hasNonMicAttributes && retryCount < MicrophoneMonitorService.MAX_ATTRIBUTE_LOAD_RETRIES) {
+      const delay = MicrophoneMonitorService.ATTRIBUTE_LOAD_RETRY_DELAY_MS * (retryCount + 1);
+      await new Promise((resolve) => setTimeout(resolve, delay));
+      return this.updateWorkerMicAttribute(micStatus, retryCount + 1);
+    }
     const updatedAttributes: WorkerAttributeUpdate = {
       ...currentAttributes,
       mic: micStatus,
@@ -511,12 +527,12 @@ class MicrophoneMonitorService {
     const browserName = this.browserInfo.isFirefox
       ? 'Firefox'
       : this.browserInfo.isChrome
-      ? 'Chrome'
-      : this.browserInfo.isSafari
-      ? 'Safari'
-      : this.browserInfo.isEdge
-      ? 'Edge'
-      : 'Unknown';
+        ? 'Chrome'
+        : this.browserInfo.isSafari
+          ? 'Safari'
+          : this.browserInfo.isEdge
+            ? 'Edge'
+            : 'Unknown';
 
     console.log(`Setting up fallback microphone permission handler for ${browserName} compatibility`);
 
@@ -730,8 +746,7 @@ class MicrophoneMonitorService {
       const currentActivity = workerClient.activity?.name ?? 'Unknown';
 
       console.log(
-        `Activity changing from ${wasAvailable ? 'Available' : 'Not Available'} to ${
-          isNowAvailable ? 'Available' : 'Not Available'
+        `Activity changing from ${wasAvailable ? 'Available' : 'Not Available'} to ${isNowAvailable ? 'Available' : 'Not Available'
         } (${currentActivity})`,
       );
 
@@ -777,8 +792,7 @@ class MicrophoneMonitorService {
           console.log(`Worker became unavailable (${currentActivity}) - time already saved above`);
         } else if (!wasAvailable && isNowAvailable) {
           console.log(
-            `Worker became available (${currentActivity}) - timer ${
-              this.shouldCountTime() ? 'resumed' : 'ready to resume'
+            `Worker became available (${currentActivity}) - timer ${this.shouldCountTime() ? 'resumed' : 'ready to resume'
             } for ${this.micState}`,
           );
         }
