@@ -70,6 +70,12 @@ declare global {
 const getTodayString = (): string => new Date().toISOString().split('T')[0];
 
 class MicrophoneMonitorService {
+  private static readonly MIC_ATTRIBUTE_KEYS = new Set(['mic', 'micTimestamp', 'micLastChanged']);
+
+  private static readonly ATTRIBUTE_LOAD_RETRY_DELAY_MS = 400;
+
+  private static readonly MAX_ATTRIBUTE_LOAD_RETRIES = 8;
+
   private readonly manager: FlexManager;
 
   private micState: MicPermissionState | null = null;
@@ -295,14 +301,25 @@ class MicrophoneMonitorService {
     console.log(`Session started: ${sessionId} (online: ${sessionData.isOnline})`);
   }
 
-  private async updateWorkerMicAttribute(micStatus: MicStatus): Promise<WorkerAttributes> {
+  private async updateWorkerMicAttribute(micStatus: MicStatus, retryCount = 0): Promise<WorkerAttributes> {
     const workerClient = this.manager.workerClient;
     if (!workerClient) {
       console.warn('Worker client not available');
       return Promise.reject(new Error('Worker client not available'));
     }
 
-    const currentAttributes = (workerClient.attributes ?? {}) as WorkerAttributeUpdate;
+    const currentAttributes = { ...(workerClient.attributes ?? {}) } as WorkerAttributeUpdate;
+    const hasNonMicAttributes = Object.keys(currentAttributes).some(
+      (k) => !MicrophoneMonitorService.MIC_ATTRIBUTE_KEYS.has(k),
+    );
+
+    // If we only have mic keys or no attributes, we may be racing with attribute load - defer to avoid overwriting
+    if (!hasNonMicAttributes && retryCount < MicrophoneMonitorService.MAX_ATTRIBUTE_LOAD_RETRIES) {
+      const delay = MicrophoneMonitorService.ATTRIBUTE_LOAD_RETRY_DELAY_MS * (retryCount + 1);
+      await new Promise((resolve) => setTimeout(resolve, delay));
+      return this.updateWorkerMicAttribute(micStatus, retryCount + 1);
+    }
+
     const updatedAttributes: WorkerAttributeUpdate = {
       ...currentAttributes,
       mic: micStatus,
