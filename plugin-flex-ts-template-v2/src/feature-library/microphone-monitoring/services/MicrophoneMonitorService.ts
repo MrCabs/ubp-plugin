@@ -308,7 +308,15 @@ class MicrophoneMonitorService {
       return Promise.reject(new Error('Worker client not available'));
     }
 
-    const currentAttributes = { ...(workerClient.attributes ?? {}) } as WorkerAttributeUpdate;
+    // Use Redux store as source of truth for full attributes so we never overwrite with mic-only
+    const storeState = this.manager.store?.getState() as { flex?: { worker?: { attributes?: WorkerAttributes } } } | undefined;
+    const storeAttributes = storeState?.flex?.worker?.attributes ?? {};
+    const clientAttributes = workerClient.attributes ?? {};
+    const currentAttributes: WorkerAttributeUpdate = {
+      ...storeAttributes,
+      ...clientAttributes,
+    };
+
     const hasNonMicAttributes = Object.keys(currentAttributes).some(
       (k) => !MicrophoneMonitorService.MIC_ATTRIBUTE_KEYS.has(k),
     );
@@ -320,6 +328,7 @@ class MicrophoneMonitorService {
       return this.updateWorkerMicAttribute(micStatus, retryCount + 1);
     }
 
+    // Merge only mic fields into existing attributes so we never wipe other worker attributes
     const updatedAttributes: WorkerAttributeUpdate = {
       ...currentAttributes,
       mic: micStatus,
