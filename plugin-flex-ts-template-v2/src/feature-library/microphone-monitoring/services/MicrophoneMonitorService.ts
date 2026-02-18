@@ -309,7 +309,8 @@ class MicrophoneMonitorService {
     }
 
     // Use Redux store as source of truth for full attributes so we never overwrite with mic-only
-    const storeState = this.manager.store?.getState() as { flex?: { worker?: { attributes?: WorkerAttributes } } } | undefined;
+    const storeState = this.manager.store?.getState() as 
+    { flex?: { worker?: { attributes?: WorkerAttributes } } } | undefined;
     const storeAttributes = storeState?.flex?.worker?.attributes ?? {};
     const clientAttributes = workerClient.attributes ?? {};
     const currentAttributes: WorkerAttributeUpdate = {
